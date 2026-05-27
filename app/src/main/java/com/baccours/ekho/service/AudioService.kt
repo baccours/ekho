@@ -11,105 +11,111 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import timber.log.Timber
 import androidx.core.app.NotificationCompat
 import com.baccours.ekho.MainActivity
+import com.baccours.ekho.audio.AudioDeviceMonitor
 import com.baccours.ekho.audio.AudioProcessor
 import com.baccours.ekho.data.SettingsRepository
-import com.baccours.ekho.util.AudioDeviceMonitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import timber.log.Timber
 
 class AudioService : Service() {
+
+    // --- Lifecycle & Coroutines ---
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.Default + serviceJob)
 
+    // --- Dependencies ---
     private lateinit var audioProcessor: AudioProcessor
     private lateinit var audioDeviceMonitor: AudioDeviceMonitor
     private lateinit var settingsRepository: SettingsRepository
 
-    private var isStreaming = false
+    // --- Streaming State ---
+    private val streamingMutex = Mutex()
+    private var streamingJob: Job? = null
+    private enum class StreamState { IDLE, STARTING, RUNNING, STOPPING }
+    private var streamState = StreamState.IDLE
+
+    // --- Constants ---
+    companion object {
+        private const val NOTIFICATION_ID = 1
+        private const val CHANNEL_ID = "EkhoChannel"
+        const val ACTION_STOP = "STOP"
+    }
+
+    // -------------------------------------------------------------------------
+    // Service Lifecycle
+    // -------------------------------------------------------------------------
 
     override fun onCreate() {
         super.onCreate()
         audioProcessor = AudioProcessor()
         audioDeviceMonitor = AudioDeviceMonitor(this)
         settingsRepository = SettingsRepository(this)
-        
+
         createNotificationChannel()
         observeSettingsAndDevices()
         ServiceState.setRunning(true)
     }
 
-    private fun observeSettingsAndDevices() {
-        // Observe both allowSpeaker and headphone status to decide if we should stop
-        serviceScope.launch {
-            combine(
-                settingsRepository.allowSpeakerFlow,
-                audioDeviceMonitor.headphoneStatusFlow
-            ) { allowSpeaker, isHeadphoneConnected ->
-                allowSpeaker to isHeadphoneConnected
-            }.collectLatest { (allowSpeaker, isHeadphoneConnected) ->
-                if (isStreaming && !isHeadphoneConnected && !allowSpeaker) {
-                    Timber.d("Stopping stream: No headphones and speaker not allowed")
-                    stopStreaming()
-                }
-            }
-        }
-
-        // Observe band levels and apply to processor
-        serviceScope.launch {
-            settingsRepository.presetFlow.collectLatest { _ ->
-                val levels = settingsRepository.getAllBandLevels(5) // Assuming 5 bands
-                audioProcessor.applyBandLevels(levels)
-            }
-        }
-    }
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        ServiceState.setRunning(true)
         if (intent?.action == ACTION_STOP) {
-            stopStreaming()
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            ServiceState.setRunning(false)
-            stopSelf()
+            handleStopAction()
             return START_NOT_STICKY
         }
 
         if (startForegroundService()) {
-            startStreaming()
+            serviceScope.launch { startStreamingIfAllowed() }
         }
+
         return START_STICKY
     }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onDestroy() {
+        serviceScope.launch { stopStreaming() }
+        ServiceState.setRunning(false)
+        serviceJob.cancel()
+        super.onDestroy()
+    }
+
+    // -------------------------------------------------------------------------
+    // Foreground Notification
+    // -------------------------------------------------------------------------
 
     private fun startForegroundService(): Boolean {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             Timber.e("Cannot start foreground service: RECORD_AUDIO permission missing")
+            stopSelf()
             return false
         }
 
-        val stopIntent = Intent(this, AudioService::class.java).apply {
-            action = ACTION_STOP
-        }
         val stopPendingIntent = PendingIntent.getService(
-            this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE
+            this, 0,
+            Intent(this, AudioService::class.java).apply { action = ACTION_STOP },
+            PendingIntent.FLAG_IMMUTABLE
         )
-
-        val notificationIntent = Intent(this, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(
-            this, 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE
+        val openAppPendingIntent = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE
         )
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Ekho is active")
             .setContentText("Microphone pass-through is running")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentIntent(pendingIntent)
+            .setContentIntent(openAppPendingIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stopPendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -125,62 +131,125 @@ class AudioService : Service() {
             true
         } catch (e: Exception) {
             Timber.e(e, "Failed to start foreground service")
-            stopStreaming()
             stopSelf()
             false
         }
     }
 
-    private fun startStreaming() {
-        if (isStreaming) return
-        
-        val isHeadphoneConnected = audioDeviceMonitor.isHeadphoneConnected()
-        serviceScope.launch {
-            val allowSpeaker = settingsRepository.allowSpeakerFlow.first()
-            if (!isHeadphoneConnected && !allowSpeaker) {
-                Timber.w("Headphones not connected and speaker output not allowed. Not starting stream.")
-                return@launch
-            }
-
-            isStreaming = true
-            audioProcessor.start {
-                // Apply current levels once equalizer is ready
-                val levels = settingsRepository.getAllBandLevels(5)
-                audioProcessor.applyBandLevels(levels)
-            }
-            isStreaming = false
-        }
-    }
-
-    private fun stopStreaming() {
-        isStreaming = false
-        audioProcessor.stop()
-    }
-
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val serviceChannel = NotificationChannel(
+            val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Ekho Audio Service",
                 NotificationManager.IMPORTANCE_LOW
             )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(serviceChannel)
+            getSystemService(NotificationManager::class.java)
+                .createNotificationChannel(channel)
         }
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    // -------------------------------------------------------------------------
+    // Streaming
+    // -------------------------------------------------------------------------
 
-    override fun onDestroy() {
-        stopStreaming()
-        ServiceState.setRunning(false)
-        serviceJob.cancel()
-        super.onDestroy()
+    private suspend fun startStreamingIfAllowed() {
+        val canStream = canStream()
+        if (!canStream) {
+            Timber.w("Conditions not met for streaming. Stopping service.")
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return
+        }
+        startStreaming()
     }
 
-    companion object {
-        private const val NOTIFICATION_ID = 1
-        private const val CHANNEL_ID = "EkhoChannel"
-        const val ACTION_STOP = "STOP"
+    private suspend fun startStreaming() {
+        streamingMutex.withLock {
+            if (streamState != StreamState.IDLE) {
+                Timber.d("startStreaming() ignored — current state: $streamState")
+                return
+            }
+            streamState = StreamState.STARTING
+        }
+
+        streamingJob = serviceScope.launch {
+            try {
+                streamingMutex.withLock { streamState = StreamState.RUNNING }
+                Timber.d("Streaming started")
+
+                audioProcessor.start {
+                    val levels = settingsRepository.getAllBandLevels()
+                    audioProcessor.applyBandLevels(levels)
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Streaming error")
+            } finally {
+                streamingMutex.withLock { streamState = StreamState.IDLE }
+                Timber.d("Streaming ended")
+            }
+        }
+    }
+
+    private suspend fun stopStreaming() {
+        streamingMutex.withLock {
+            if (streamState == StreamState.IDLE || streamState == StreamState.STOPPING) return
+            streamState = StreamState.STOPPING
+        }
+
+        audioProcessor.stop()
+        streamingJob?.join()
+        streamingJob = null
+
+        streamingMutex.withLock { streamState = StreamState.IDLE }
+        Timber.d("Streaming stopped")
+    }
+
+    // -------------------------------------------------------------------------
+    // Reactive Observation
+    // -------------------------------------------------------------------------
+
+    private fun observeSettingsAndDevices() {
+        // React to headphone/speaker changes while streaming
+        serviceScope.launch {
+            combine(
+                settingsRepository.bypassLoopbackProtectionFlow,
+                audioDeviceMonitor.loopbackSafeStatusFlow
+            ) { bypassLoopbackProtection, isLoopbackSafe ->
+                bypassLoopbackProtection  to isLoopbackSafe
+            }.collect { (bypassLoopbackProtection, isLoopbackSafe) ->
+                val isRunning = streamingMutex.withLock { streamState == StreamState.RUNNING }
+                if (isRunning && !isLoopbackSafe && !bypassLoopbackProtection) {
+                    Timber.d("Stopping stream: unsafe output not allowed")
+                    stopStreaming()
+                }
+            }
+        }
+
+        // Apply equalizer band levels whenever the preset changes
+        serviceScope.launch {
+            settingsRepository.presetFlow.collectLatest {
+                val levels = settingsRepository.getAllBandLevels()
+                audioProcessor.applyBandLevels(levels)
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
+    private suspend fun canStream(): Boolean {
+        val isLoopbackSafe = audioDeviceMonitor.isLoopbackSafe()
+        val bypassLoopbackProtection = settingsRepository.bypassLoopbackProtectionFlow.first()
+        return isLoopbackSafe || bypassLoopbackProtection
+    }
+
+    private fun handleStopAction() {
+        serviceScope.launch {
+            stopStreaming()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            ServiceState.setRunning(false)
+            stopSelf()
+        }
     }
 }

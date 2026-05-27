@@ -3,48 +3,54 @@ package com.baccours.ekho.ui.main
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.baccours.ekho.audio.AudioDeviceMonitor
 import com.baccours.ekho.data.SettingsRepository
-import com.baccours.ekho.util.AudioDeviceMonitor
-import kotlinx.coroutines.flow.MutableStateFlow
+import com.baccours.ekho.service.ServiceState
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-class MainViewModel(application: Application) : AndroidViewModel(application) {
+data class MainUiState(
+    val preset: String = SettingsRepository.PRESET_FLAT,
+    val bandLevels: Map<Int, Int> = emptyMap(),
+    val bypassLoopbackProtection: Boolean = false,
+    val isLoopbackSafe: Boolean = true,
+    val isServiceRunning: Boolean = false
+)
 
+class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = SettingsRepository(application)
     private val audioDeviceMonitor = AudioDeviceMonitor(application)
 
-    val preset = repository.presetFlow.stateIn(
-        viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsRepository.PRESET_FLAT
+    val uiState: StateFlow<MainUiState> = combine(
+        repository.presetFlow,
+        repository.bandLevelsFlow,
+        repository.bypassLoopbackProtectionFlow,
+        audioDeviceMonitor.loopbackSafeStatusFlow,
+        ServiceState.isServiceRunning
+    ) { preset, levels, bypass, loopbackSafe, serviceRunning ->
+        MainUiState(
+            preset = preset,
+            bandLevels = levels,
+            bypassLoopbackProtection = bypass,
+            isLoopbackSafe = loopbackSafe,
+            isServiceRunning = serviceRunning
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = MainUiState(
+            isLoopbackSafe = audioDeviceMonitor.isLoopbackSafe(),
+            isServiceRunning = ServiceState.isServiceRunning.value
+        )
     )
 
-    val allowSpeaker = repository.allowSpeakerFlow.stateIn(
-        viewModelScope, SharingStarted.WhileSubscribed(5000), false
-    )
-
-    private val _bandLevels = MutableStateFlow<Map<Int, Int>>(emptyMap())
-    val bandLevels: StateFlow<Map<Int, Int>> = _bandLevels.asStateFlow()
-
-    val isHeadphoneConnected: StateFlow<Boolean> = audioDeviceMonitor.headphoneStatusFlow
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), audioDeviceMonitor.isHeadphoneConnected())
-
-    val isServiceRunning: StateFlow<Boolean> = com.baccours.ekho.service.ServiceState.isServiceRunning
-
-    init {
-        viewModelScope.launch {
-            repository.bandLevelsFlow.collect {
-                _bandLevels.value = it
-            }
-        }
-    }
+    val bandFrequencies = repository.bandFrequencies
+    val bandLevelRange = repository.minBandLevel.toFloat()..repository.maxBandLevel.toFloat()
 
     fun updateBandLevel(bandId: Int, level: Int) {
-        _bandLevels.value = _bandLevels.value.toMutableMap().apply {
-            put(bandId, level)
-        }
         viewModelScope.launch {
             repository.saveBandLevel(bandId, level)
         }
@@ -56,9 +62,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setAllowSpeaker(allow: Boolean) {
+    fun setBypassLoopbackProtection(bypass: Boolean) {
         viewModelScope.launch {
-            repository.saveAllowSpeaker(allow)
+            repository.saveBypassLoopbackProtection(bypass)
         }
     }
 }

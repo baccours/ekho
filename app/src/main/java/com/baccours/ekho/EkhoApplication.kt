@@ -2,7 +2,6 @@ package com.baccours.ekho
 
 import android.app.Application
 import timber.log.Timber
-import com.baccours.ekho.BuildConfig
 
 class EkhoApplication : Application() {
     override fun onCreate() {

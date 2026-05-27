@@ -1,4 +1,4 @@
-package com.baccours.ekho.util
+package com.baccours.ekho.audio
 
 import android.content.Context
 import android.media.AudioDeviceCallback
@@ -12,19 +12,19 @@ import kotlinx.coroutines.flow.onStart
 class AudioDeviceMonitor(context: Context) {
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
-    fun isHeadphoneConnected(): Boolean {
+    fun isLoopbackSafe(): Boolean {
         val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-        return devices.any { isHeadphone(it) }
+        return devices.any { isDeviceLoopbackSafe(it) }
     }
 
-    val headphoneStatusFlow: Flow<Boolean> = callbackFlow {
+    val loopbackSafeStatusFlow: Flow<Boolean> = callbackFlow {
         val callback = object : AudioDeviceCallback() {
             override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
-                trySend(isHeadphoneConnected())
+                trySend(isLoopbackSafe())
             }
 
             override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
-                trySend(isHeadphoneConnected())
+                trySend(isLoopbackSafe())
             }
         }
 
@@ -32,17 +32,25 @@ class AudioDeviceMonitor(context: Context) {
         awaitClose {
             audioManager.unregisterAudioDeviceCallback(callback)
         }
-    }.onStart { emit(isHeadphoneConnected()) }
+    }.onStart { emit(isLoopbackSafe()) }
 
-    private fun isHeadphone(device: AudioDeviceInfo): Boolean {
+    private fun isDeviceLoopbackSafe(device: AudioDeviceInfo): Boolean {
         return when (device.type) {
             AudioDeviceInfo.TYPE_WIRED_HEADSET,
             AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_USB_DEVICE,
+            AudioDeviceInfo.TYPE_USB_ACCESSORY,
+            AudioDeviceInfo.TYPE_LINE_DIGITAL,
+            AudioDeviceInfo.TYPE_LINE_ANALOG,
+
             AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
             AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
-            AudioDeviceInfo.TYPE_USB_HEADSET,
             AudioDeviceInfo.TYPE_HEARING_AID,
-            AudioDeviceInfo.TYPE_BLE_HEADSET -> true
+
+            AudioDeviceInfo.TYPE_BLE_HEADSET,
+            AudioDeviceInfo.TYPE_BLE_SPEAKER,
+            AudioDeviceInfo.TYPE_BLE_BROADCAST -> true
             else -> false
         }
     }

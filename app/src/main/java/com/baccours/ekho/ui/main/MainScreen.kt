@@ -6,8 +6,14 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,8 +21,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -27,24 +35,26 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Switch
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
@@ -54,11 +64,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.baccours.ekho.data.SettingsRepository
 import com.baccours.ekho.service.AudioService
-import com.baccours.ekho.ui.icons.Headset
-import com.baccours.ekho.ui.icons.HeadsetOff
 import com.baccours.ekho.ui.icons.Icons
 import com.baccours.ekho.ui.icons.Play
 import com.baccours.ekho.ui.icons.Stop
@@ -68,11 +77,7 @@ import com.baccours.ekho.ui.theme.EkhoTheme
 @Composable
 fun MainScreen(viewModel: MainViewModel = viewModel()) {
     val context = LocalContext.current
-    val preset by viewModel.preset.collectAsState()
-    val allowSpeaker by viewModel.allowSpeaker.collectAsState()
-    val bandLevels by viewModel.bandLevels.collectAsState()
-    val isHeadphoneConnected by viewModel.isHeadphoneConnected.collectAsState()
-    val isServiceRunning by viewModel.isServiceRunning.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -100,22 +105,25 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            StatusCard(isHeadphoneConnected)
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            SpeakerToggleCard(
-                allowSpeaker = allowSpeaker,
-                onToggle = { viewModel.setAllowSpeaker(it) }
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
+            AnimatedVisibility(
+                visible = !uiState.isLoopbackSafe,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column {
+                    SafetyStatusCard(
+                        bypassLoopbackProtection = uiState.bypassLoopbackProtection,
+                        onToggleBypass = { viewModel.setBypassLoopbackProtection(it) }
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+            }
 
             ServiceControlButton(
-                isServiceRunning = isServiceRunning,
-                enabled = isHeadphoneConnected || allowSpeaker || isServiceRunning,
+                isServiceRunning = uiState.isServiceRunning,
+                enabled = uiState.isLoopbackSafe || uiState.bypassLoopbackProtection || uiState.isServiceRunning,
                 onToggle = {
-                    if (isServiceRunning) {
+                    if (uiState.isServiceRunning) {
                         val intent = Intent(context, AudioService::class.java).apply {
                             action = AudioService.ACTION_STOP
                         }
@@ -143,8 +151,10 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
             Spacer(modifier = Modifier.height(32.dp))
 
             EqualizerSection(
-                preset = preset,
-                bandLevels = bandLevels,
+                preset = uiState.preset,
+                bandLevels = uiState.bandLevels,
+                bandFrequencies = viewModel.bandFrequencies,
+                bandLevelRange = viewModel.bandLevelRange,
                 onPresetChange = { viewModel.setPreset(it) },
                 onBandLevelChange = { bandId, level -> viewModel.updateBandLevel(bandId, level) }
             )
@@ -152,76 +162,111 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StatusCard(isHeadphoneConnected: Boolean) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isHeadphoneConnected) 
-                MaterialTheme.colorScheme.secondaryContainer 
-            else 
-                MaterialTheme.colorScheme.errorContainer
-        )
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = if (isHeadphoneConnected) Icons.Headset else Icons.HeadsetOff,
-                contentDescription = null,
-                tint = if (isHeadphoneConnected) 
-                    MaterialTheme.colorScheme.onSecondaryContainer 
-                else 
-                    MaterialTheme.colorScheme.onErrorContainer
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-            Text(
-                text = if (isHeadphoneConnected) 
-                    "Headphones Connected" 
-                else 
-                    "Headphones Recommended",
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (isHeadphoneConnected) 
-                    MaterialTheme.colorScheme.onSecondaryContainer 
-                else 
-                    MaterialTheme.colorScheme.onErrorContainer
-            )
-        }
-    }
-}
+fun SafetyStatusCard(
+    bypassLoopbackProtection: Boolean,
+    onToggleBypass: (Boolean) -> Unit
+) {
+    val backgroundColor = if (bypassLoopbackProtection) MaterialTheme.colorScheme.errorContainer
+        else MaterialTheme.colorScheme.tertiaryContainer
 
-@Composable
-fun SpeakerToggleCard(allowSpeaker: Boolean, onToggle: (Boolean) -> Unit) {
+    val contentColor = if (bypassLoopbackProtection) MaterialTheme.colorScheme.onErrorContainer
+        else MaterialTheme.colorScheme.onTertiaryContainer
+
+    var sliderPosition by remember(bypassLoopbackProtection) {
+        mutableFloatStateOf(if (bypassLoopbackProtection) 1f else 0f)
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+        colors = CardDefaults.cardColors(containerColor = backgroundColor)
     ) {
-        Row(
-            modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Allow Speaker Output",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column {
+                    Text(
+                        text = "Feedback Risk",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = contentColor
+                    )
+                    Text(
+                        text = "Headphones or speakers recommended to prevent screeching.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = contentColor.copy(alpha = 0.8f)
+                    )
+                }
+            }
+
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 12.dp),
+                thickness = 0.5.dp,
+                color = contentColor.copy(alpha = 0.2f)
+            )
+
+            Text(
+                text = if (bypassLoopbackProtection) "Slide left to re-enable safety"
+                    else "Slide right to bypass safety",
+                style = MaterialTheme.typography.labelMedium,
+                color = contentColor
+            )
+
+            val trackHeight = 56.dp
+            val thumbSize = 48.dp
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+                    .height(trackHeight),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(trackHeight)
+                        .background(contentColor.copy(alpha = 0.1f), CircleShape)
                 )
-                Text(
-                    text = "Caution: May cause feedback loops",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                Slider(
+                    value = sliderPosition,
+                    onValueChange = { sliderPosition = it },
+                    onValueChangeFinished = {
+                        if (sliderPosition > 0.9f) {
+                            onToggleBypass(true)
+                        } else if (sliderPosition < 0.1f) {
+                            onToggleBypass(false)
+                        } else {
+                            sliderPosition = if (bypassLoopbackProtection) 1f else 0f
+                        }
+                    },
+                    valueRange = 0f..1f,
+                    modifier = Modifier.fillMaxWidth(),
+                    thumb = {
+                        Surface(
+                            modifier = Modifier
+                                .size(thumbSize)
+                                .padding(4.dp),
+                            shape = CircleShape,
+                            color = backgroundColor,
+                            border = BorderStroke(
+                                width = 6.dp,
+                                color = if (bypassLoopbackProtection) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.primary
+                            ),
+                            shadowElevation = 2.dp
+                        ) {}
+                    },
+                    track = { sliderState ->
+                        SliderDefaults.Track(
+                            sliderState = sliderState,
+                            modifier = Modifier.height(trackHeight),
+                            colors = SliderDefaults.colors(
+                                activeTrackColor = Color.Transparent,
+                                inactiveTrackColor = Color.Transparent
+                            )
+                        )
+                    }
                 )
             }
-            Switch(
-                checked = allowSpeaker,
-                onCheckedChange = onToggle
-            )
         }
     }
 }
@@ -263,6 +308,8 @@ fun ServiceControlButton(
 fun EqualizerSection(
     preset: String,
     bandLevels: Map<Int, Int>,
+    bandFrequencies: List<Int>,
+    bandLevelRange: ClosedFloatingPointRange<Float>,
     onPresetChange: (String) -> Unit,
     onBandLevelChange: (Int, Int) -> Unit
 ) {
@@ -292,7 +339,9 @@ fun EqualizerSection(
             readOnly = true,
             label = { Text("Preset") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth()
+            modifier = Modifier
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                .fillMaxWidth()
         )
         ExposedDropdownMenu(
             expanded = expanded,
@@ -323,6 +372,8 @@ fun EqualizerSection(
             VerticalBandSlider(
                 bandId = bandId,
                 level = level,
+                frequency = bandFrequencies.getOrNull(bandId),
+                valueRange = bandLevelRange,
                 onLevelChange = { newLevel ->
                     onBandLevelChange(bandId, newLevel)
                 }
@@ -332,7 +383,13 @@ fun EqualizerSection(
 }
 
 @Composable
-fun VerticalBandSlider(bandId: Int, level: Int, onLevelChange: (Int) -> Unit) {
+fun VerticalBandSlider(
+    bandId: Int,
+    level: Int,
+    frequency: Int?,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onLevelChange: (Int) -> Unit
+) {
     Column(
         modifier = Modifier.width(64.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -350,7 +407,7 @@ fun VerticalBandSlider(bandId: Int, level: Int, onLevelChange: (Int) -> Unit) {
         Slider(
             value = level.toFloat(),
             onValueChange = { onLevelChange(it.toInt()) },
-            valueRange = -1500f..1500f,
+            valueRange = valueRange,
             modifier = Modifier
                 .height(200.dp)
                 .graphicsLayer {
@@ -379,8 +436,13 @@ fun VerticalBandSlider(bandId: Int, level: Int, onLevelChange: (Int) -> Unit) {
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        val freqText = when {
+            frequency == null -> "B${bandId + 1}"
+            frequency >= 1000 -> "${frequency / 1000} kHz"
+            else -> "$frequency Hz"
+        }
         Text(
-            text = "B${bandId + 1}",
+            text = freqText,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold
         )
