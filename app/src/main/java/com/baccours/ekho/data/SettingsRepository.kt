@@ -2,7 +2,11 @@ package com.baccours.ekho.data
 
 import android.content.Context
 import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.*
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -15,7 +19,7 @@ class SettingsRepository(private val context: Context) {
     companion object {
         val PRESET_KEY = stringPreferencesKey("equalizer_preset")
         val ALLOW_SPEAKER_KEY = booleanPreferencesKey("allow_speaker_transmission")
-        val BAND_PREFIX = "band_"
+        const val BAND_PREFIX = "band_"
         
         const val PRESET_FLAT = "Flat"
         const val PRESET_VOICE = "Voice Clarity"
@@ -35,10 +39,6 @@ class SettingsRepository(private val context: Context) {
         (0 until 5).associateWith { band ->
             preferences[intPreferencesKey("$BAND_PREFIX$band")] ?: 0
         }
-    }
-
-    fun getBandLevelFlow(bandId: Int): Flow<Int> = context.dataStore.data.map { preferences ->
-        preferences[intPreferencesKey("$BAND_PREFIX$bandId")] ?: 0
     }
 
     suspend fun savePreset(preset: String) {

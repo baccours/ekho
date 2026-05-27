@@ -2,27 +2,30 @@ package com.baccours.ekho.service
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.*
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
-import android.os.Binder
 import android.os.Build
 import android.os.IBinder
-import android.util.Log
+import timber.log.Timber
 import androidx.core.app.NotificationCompat
 import com.baccours.ekho.MainActivity
 import com.baccours.ekho.audio.AudioProcessor
 import com.baccours.ekho.data.SettingsRepository
 import com.baccours.ekho.util.AudioDeviceMonitor
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class AudioService : Service() {
-
-    private val binder = AudioBinder()
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.Default + serviceJob)
 
@@ -32,13 +35,9 @@ class AudioService : Service() {
 
     private var isStreaming = false
 
-    inner class AudioBinder : Binder() {
-        fun getService(): AudioService = this@AudioService
-    }
-
     override fun onCreate() {
         super.onCreate()
-        audioProcessor = AudioProcessor(this)
+        audioProcessor = AudioProcessor()
         audioDeviceMonitor = AudioDeviceMonitor(this)
         settingsRepository = SettingsRepository(this)
         
@@ -57,7 +56,7 @@ class AudioService : Service() {
                 allowSpeaker to isHeadphoneConnected
             }.collectLatest { (allowSpeaker, isHeadphoneConnected) ->
                 if (isStreaming && !isHeadphoneConnected && !allowSpeaker) {
-                    Log.d(TAG, "Stopping stream: No headphones and speaker not allowed")
+                    Timber.d("Stopping stream: No headphones and speaker not allowed")
                     stopStreaming()
                 }
             }
@@ -90,7 +89,7 @@ class AudioService : Service() {
 
     private fun startForegroundService(): Boolean {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            Log.e(TAG, "Cannot start foreground service: RECORD_AUDIO permission missing")
+            Timber.e("Cannot start foreground service: RECORD_AUDIO permission missing")
             return false
         }
 
@@ -125,7 +124,7 @@ class AudioService : Service() {
             }
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start foreground service", e)
+            Timber.e(e, "Failed to start foreground service")
             stopStreaming()
             stopSelf()
             false
@@ -139,7 +138,7 @@ class AudioService : Service() {
         serviceScope.launch {
             val allowSpeaker = settingsRepository.allowSpeakerFlow.first()
             if (!isHeadphoneConnected && !allowSpeaker) {
-                Log.w(TAG, "Headphones not connected and speaker output not allowed. Not starting stream.")
+                Timber.w("Headphones not connected and speaker output not allowed. Not starting stream.")
                 return@launch
             }
 
@@ -170,7 +169,7 @@ class AudioService : Service() {
         }
     }
 
-    override fun onBind(intent: Intent?): IBinder = binder
+    override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         stopStreaming()
@@ -180,9 +179,8 @@ class AudioService : Service() {
     }
 
     companion object {
-        private const val TAG = "AudioService"
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "EkhoChannel"
-        const val ACTION_STOP = "com.baccours.ekho.STOP"
+        const val ACTION_STOP = "STOP"
     }
 }

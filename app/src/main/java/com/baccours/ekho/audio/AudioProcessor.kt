@@ -1,22 +1,20 @@
 package com.baccours.ekho.audio
 
-import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
-import android.media.*
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.AudioTrack
+import android.media.MediaRecorder
 import android.media.audiofx.Equalizer
-import android.util.Log
-import androidx.core.content.ContextCompat
-import kotlinx.coroutines.*
-import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.yield
+import timber.log.Timber
 
 class AudioProcessor(
-    private val context: Context,
     private val sampleRate: Int = 44100,
     private val audioEncoding: Int = AudioFormat.ENCODING_PCM_16BIT
 ) {
-    private val tag = "AudioProcessor"
-    
     private val channelConfigIn = AudioFormat.CHANNEL_IN_MONO
     private val channelConfigOut = AudioFormat.CHANNEL_OUT_MONO
     private val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfigIn, audioEncoding)
@@ -30,11 +28,6 @@ class AudioProcessor(
     suspend fun start(onProcessing: suspend (Equalizer?) -> Unit) {
         if (isProcessing) return
         
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            Log.e(tag, "RECORD_AUDIO permission not granted")
-            return
-        }
-
         isProcessing = true
         
         try {
@@ -47,7 +40,7 @@ class AudioProcessor(
             )
             
             if (record.state != AudioRecord.STATE_INITIALIZED) {
-                Log.e(tag, "AudioRecord failed to initialize")
+                Timber.e("AudioRecord failed to initialize")
                 return
             }
             audioRecord = record
@@ -71,7 +64,7 @@ class AudioProcessor(
                 .build()
 
             if (track.state != AudioTrack.STATE_INITIALIZED) {
-                Log.e(tag, "AudioTrack failed to initialize")
+                Timber.e("AudioTrack failed to initialize")
                 return
             }
             audioTrack = track
@@ -87,20 +80,21 @@ class AudioProcessor(
             track.play()
 
             val buffer = ShortArray(bufferSize)
-            while (isProcessing && coroutineContext.isActive) {
-                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                    Log.e(tag, "Permission revoked during streaming")
-                    break
-                }
+            while (isProcessing && currentCoroutineContext().isActive) {
                 val read = record.read(buffer, 0, buffer.size)
                 if (read > 0) {
                     track.write(buffer, 0, read)
+                } else if (read < 0) {
+                    Timber.e("Error reading audio data: $read")
+                    break
                 }
+
+                yield()
             }
         } catch (e: SecurityException) {
-            Log.e(tag, "SecurityException in AudioProcessor", e)
+            Timber.e(e, "SecurityException in AudioProcessor")
         } catch (e: Exception) {
-            Log.e(tag, "Error in AudioProcessor", e)
+            Timber.e(e, "Error in AudioProcessor")
         } finally {
             stop()
         }
@@ -121,7 +115,7 @@ class AudioProcessor(
                     stop()
                 }
             } catch (e: Exception) {
-                Log.e(tag, "Error stopping AudioRecord", e)
+                Timber.e(e, "Error stopping AudioRecord")
             }
             release()
         }
@@ -133,7 +127,7 @@ class AudioProcessor(
                     stop()
                 }
             } catch (e: Exception) {
-                Log.e(tag, "Error stopping AudioTrack", e)
+                Timber.e(e, "Error stopping AudioTrack")
             }
             release()
         }
@@ -148,7 +142,7 @@ class AudioProcessor(
                     eq.setBandLevel(band.toShort(), level.toShort())
                 }
             } catch (e: Exception) {
-                Log.e(tag, "Error setting band $band to $level", e)
+                Timber.e(e, "Error setting band $band to $level")
             }
         }
     }
