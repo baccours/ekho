@@ -17,7 +17,8 @@ data class MainUiState(
     val bandLevels: Map<Int, Int> = emptyMap(),
     val bypassLoopbackProtection: Boolean = false,
     val isLoopbackSafe: Boolean = true,
-    val isServiceRunning: Boolean = false
+    val isServiceRunning: Boolean = false,
+    val isStreaming: Boolean = false
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -29,21 +30,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         repository.bandLevelsFlow,
         repository.bypassLoopbackProtectionFlow,
         audioDeviceMonitor.loopbackSafeStatusFlow,
-        ServiceState.isServiceRunning
-    ) { preset, levels, bypass, loopbackSafe, serviceRunning ->
+        ServiceState.state
+    ) { preset, levels, bypass, safe, serviceState ->
         MainUiState(
             preset = preset,
             bandLevels = levels,
             bypassLoopbackProtection = bypass,
-            isLoopbackSafe = loopbackSafe,
-            isServiceRunning = serviceRunning
+            isLoopbackSafe = safe,
+            isServiceRunning = serviceState.isRunning,
+            isStreaming = serviceState.isStreaming
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = MainUiState(
             isLoopbackSafe = audioDeviceMonitor.isLoopbackSafe(),
-            isServiceRunning = ServiceState.isServiceRunning.value
+            isServiceRunning = ServiceState.state.value.isRunning,
+            isStreaming = ServiceState.state.value.isStreaming
         )
     )
 

@@ -8,27 +8,28 @@ import android.media.MediaRecorder
 import android.media.audiofx.Equalizer
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.yield
 import timber.log.Timber
+import kotlin.concurrent.atomics.AtomicBoolean
+import kotlin.concurrent.atomics.ExperimentalAtomicApi
 
+@OptIn(ExperimentalAtomicApi::class)
 class AudioProcessor(
     private val sampleRate: Int = 44100,
     private val audioEncoding: Int = AudioFormat.ENCODING_PCM_16BIT
 ) {
     private val channelConfigIn = AudioFormat.CHANNEL_IN_MONO
     private val channelConfigOut = AudioFormat.CHANNEL_OUT_MONO
-    private val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfigIn, audioEncoding)
+    private val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfigIn, audioEncoding)
+    private val bufferSize = minBufferSize * 2
 
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
     private var equalizer: Equalizer? = null
-    
-    private var isProcessing = false
+
+    private val isProcessing = AtomicBoolean(false)
 
     suspend fun start(onProcessing: suspend (Equalizer?) -> Unit) {
-        if (isProcessing) return
-        
-        isProcessing = true
+        if (!isProcessing.compareAndSet(expectedValue = false, newValue = true)) return
         
         try {
             val record = AudioRecord(
@@ -40,8 +41,7 @@ class AudioProcessor(
             )
             
             if (record.state != AudioRecord.STATE_INITIALIZED) {
-                Timber.e("AudioRecord failed to initialize")
-                return
+                throw IllegalStateException("AudioRecord failed to initialize")
             }
             audioRecord = record
 
@@ -64,8 +64,7 @@ class AudioProcessor(
                 .build()
 
             if (track.state != AudioTrack.STATE_INITIALIZED) {
-                Timber.e("AudioTrack failed to initialize")
-                return
+                throw IllegalStateException("AudioTrack failed to initialize")
             }
             audioTrack = track
 
@@ -80,7 +79,7 @@ class AudioProcessor(
             track.play()
 
             val buffer = ShortArray(bufferSize)
-            while (isProcessing && currentCoroutineContext().isActive) {
+            while (isProcessing.load() && currentCoroutineContext().isActive) {
                 val read = record.read(buffer, 0, buffer.size)
                 if (read > 0) {
                     track.write(buffer, 0, read)
@@ -88,21 +87,25 @@ class AudioProcessor(
                     Timber.e("Error reading audio data: $read")
                     break
                 }
-
-                yield()
             }
         } catch (e: SecurityException) {
             Timber.e(e, "SecurityException in AudioProcessor")
         } catch (e: Exception) {
             Timber.e(e, "Error in AudioProcessor")
         } finally {
-            stop()
+            isProcessing.store(false)
+            releaseResources()
         }
     }
 
     fun stop() {
-        isProcessing = false
-        releaseResources()
+        if (!isProcessing.compareAndSet(expectedValue = true, newValue = false)) return
+        try {
+            // Calling stop() here forces record.read() in the start() loop to return immediately
+            audioRecord?.stop()
+        } catch (e: Exception) {
+            Timber.e(e, "Error unblocking AudioRecord")
+        }
     }
 
     private fun releaseResources() {
@@ -124,6 +127,8 @@ class AudioProcessor(
         audioTrack?.apply {
             try {
                 if (state == AudioTrack.STATE_INITIALIZED) {
+                    pause()
+                    flush()
                     stop()
                 }
             } catch (e: Exception) {
@@ -136,14 +141,14 @@ class AudioProcessor(
 
     fun applyBandLevels(levels: Map<Int, Int>) {
         val eq = equalizer ?: return
-        levels.forEach { (band, level) ->
-            try {
+        try {
+            levels.forEach { (band, level) ->
                 if (band < eq.numberOfBands) {
                     eq.setBandLevel(band.toShort(), level.toShort())
                 }
-            } catch (e: Exception) {
-                Timber.e(e, "Error setting band $band to $level")
             }
+        } catch (e: Exception) {
+            Timber.e(e, "Error setting band levels")
         }
     }
 }

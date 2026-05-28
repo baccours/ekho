@@ -35,7 +35,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -121,7 +120,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
 
             ServiceControlButton(
                 isServiceRunning = uiState.isServiceRunning,
-                enabled = uiState.isLoopbackSafe || uiState.bypassLoopbackProtection || uiState.isServiceRunning,
+                isStreaming = uiState.isStreaming,
                 onToggle = {
                     if (uiState.isServiceRunning) {
                         val intent = Intent(context, AudioService::class.java).apply {
@@ -182,33 +181,17 @@ fun SafetyStatusCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = backgroundColor)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column {
-                    Text(
-                        text = "Feedback Risk",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = contentColor
-                    )
-                    Text(
-                        text = "Headphones or speakers recommended to prevent screeching.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = contentColor.copy(alpha = 0.8f)
-                    )
-                }
-            }
-
-            HorizontalDivider(
-                modifier = Modifier.padding(vertical = 12.dp),
-                thickness = 0.5.dp,
-                color = contentColor.copy(alpha = 0.2f)
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Text(
+                text = "Feedback Loop Risk",
+                style = MaterialTheme.typography.titleMedium,
+                color = contentColor
             )
-
             Text(
                 text = if (bypassLoopbackProtection) "Slide left to re-enable safety"
                     else "Slide right to bypass safety",
                 style = MaterialTheme.typography.labelMedium,
-                color = contentColor
+                color = contentColor.copy(alpha = 0.5f)
             )
 
             val trackHeight = 56.dp
@@ -274,22 +257,28 @@ fun SafetyStatusCard(
 @Composable
 fun ServiceControlButton(
     isServiceRunning: Boolean,
-    enabled: Boolean,
+    isStreaming: Boolean,
     onToggle: () -> Unit
 ) {
+    val buttonColor = when {
+        !isServiceRunning -> MaterialTheme.colorScheme.primary
+        isStreaming -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.secondary
+    }
+
+    val buttonText = when {
+        !isServiceRunning -> "START"
+        isStreaming -> "STOP"
+        else -> "STANDBY (unsafe)"
+    }
+
     Button(
         onClick = onToggle,
         modifier = Modifier
             .fillMaxWidth()
             .height(64.dp),
         shape = MaterialTheme.shapes.large,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (isServiceRunning) 
-                MaterialTheme.colorScheme.error 
-            else 
-                MaterialTheme.colorScheme.primary
-        ),
-        enabled = enabled
+        colors = ButtonDefaults.buttonColors(containerColor = buttonColor)
     ) {
         Icon(
             imageVector = if (isServiceRunning) Icons.Stop else Icons.Play,
@@ -297,7 +286,7 @@ fun ServiceControlButton(
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
-            text = if (isServiceRunning) "Stop Pass-Through" else "Start Pass-Through",
+            text = buttonText,
             style = MaterialTheme.typography.titleLarge
         )
     }
