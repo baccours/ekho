@@ -67,6 +67,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.baccours.ekho.data.SettingsRepository
 import com.baccours.ekho.service.AudioService
+import com.baccours.ekho.ui.components.SwipeToggle
 import com.baccours.ekho.ui.icons.Icons
 import com.baccours.ekho.ui.icons.Play
 import com.baccours.ekho.ui.icons.Stop
@@ -173,10 +174,6 @@ fun SafetyStatusCard(
     val contentColor = if (bypassLoopbackProtection) MaterialTheme.colorScheme.onErrorContainer
         else MaterialTheme.colorScheme.onTertiaryContainer
 
-    var sliderPosition by remember(bypassLoopbackProtection) {
-        mutableFloatStateOf(if (bypassLoopbackProtection) 1f else 0f)
-    }
-
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = backgroundColor)
@@ -193,63 +190,12 @@ fun SafetyStatusCard(
                 style = MaterialTheme.typography.labelMedium,
                 color = contentColor.copy(alpha = 0.5f)
             )
-
-            val trackHeight = 56.dp
-            val thumbSize = 48.dp
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-                    .height(trackHeight),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(trackHeight)
-                        .background(contentColor.copy(alpha = 0.1f), CircleShape)
-                )
-                Slider(
-                    value = sliderPosition,
-                    onValueChange = { sliderPosition = it },
-                    onValueChangeFinished = {
-                        if (sliderPosition > 0.9f) {
-                            onToggleBypass(true)
-                        } else if (sliderPosition < 0.1f) {
-                            onToggleBypass(false)
-                        } else {
-                            sliderPosition = if (bypassLoopbackProtection) 1f else 0f
-                        }
-                    },
-                    valueRange = 0f..1f,
-                    modifier = Modifier.fillMaxWidth(),
-                    thumb = {
-                        Surface(
-                            modifier = Modifier
-                                .size(thumbSize)
-                                .padding(4.dp),
-                            shape = CircleShape,
-                            color = backgroundColor,
-                            border = BorderStroke(
-                                width = 6.dp,
-                                color = if (bypassLoopbackProtection) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.primary
-                            ),
-                            shadowElevation = 2.dp
-                        ) {}
-                    },
-                    track = { sliderState ->
-                        SliderDefaults.Track(
-                            sliderState = sliderState,
-                            modifier = Modifier.height(trackHeight),
-                            colors = SliderDefaults.colors(
-                                activeTrackColor = Color.Transparent,
-                                inactiveTrackColor = Color.Transparent
-                            )
-                        )
-                    }
-                )
-            }
+            Spacer(modifier = Modifier.height(8.dp))
+            SwipeToggle(
+                checked = bypassLoopbackProtection,
+                onCheckedChange = onToggleBypass,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
