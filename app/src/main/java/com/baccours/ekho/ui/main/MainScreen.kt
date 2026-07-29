@@ -8,12 +8,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,10 +21,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -41,19 +39,16 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
@@ -69,6 +64,8 @@ import com.baccours.ekho.data.SettingsRepository
 import com.baccours.ekho.service.AudioService
 import com.baccours.ekho.ui.components.SwipeToggle
 import com.baccours.ekho.ui.icons.Icons
+import com.baccours.ekho.ui.icons.ArrowDown
+import com.baccours.ekho.ui.icons.ArrowUp
 import com.baccours.ekho.ui.icons.Play
 import com.baccours.ekho.ui.icons.Stop
 import com.baccours.ekho.ui.theme.EkhoTheme
@@ -248,71 +245,94 @@ fun EqualizerSection(
     onPresetChange: (String) -> Unit,
     onBandLevelChange: (Int, Int) -> Unit
 ) {
-    Text(
-        text = "Equalizer",
-        style = MaterialTheme.typography.headlineSmall,
-        modifier = Modifier.fillMaxWidth()
-    )
-    
-    Spacer(modifier = Modifier.height(16.dp))
-
-    var expanded by remember { mutableStateOf(false) }
-    val presets = listOf(
-        SettingsRepository.PRESET_FLAT,
-        SettingsRepository.PRESET_VOICE,
-        SettingsRepository.PRESET_BOOST
-    )
-
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = !expanded },
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        OutlinedTextField(
-            value = preset,
-            onValueChange = {},
-            readOnly = true,
-            label = { Text("Preset") },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier
-                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                .fillMaxWidth()
-        )
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false }
-        ) {
-            presets.forEach { selection ->
-                DropdownMenuItem(
-                    text = { Text(selection) },
-                    onClick = {
-                        onPresetChange(selection)
-                        expanded = false
-                    }
-                )
-            }
-        }
-    }
-
-    Spacer(modifier = Modifier.height(24.dp))
+    var isEditing by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
+            .clickable { isEditing = !isEditing }
             .padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        bandLevels.toSortedMap().forEach { (bandId, level) ->
-            VerticalBandSlider(
-                bandId = bandId,
-                level = level,
-                frequency = bandFrequencies.getOrNull(bandId),
-                valueRange = bandLevelRange,
-                onLevelChange = { newLevel ->
-                    onBandLevelChange(bandId, newLevel)
-                }
+        Text(
+            text = "Equalizer",
+            style = MaterialTheme.typography.headlineSmall,
+        )
+        Icon(
+            imageVector = if (isEditing) Icons.ArrowUp
+            else Icons.ArrowDown,
+            contentDescription = if (isEditing) "Collapse" else "Expand"
+        )
+    }
+
+    AnimatedVisibility(
+        visible = isEditing,
+        enter = expandVertically() + fadeIn(),
+        exit = shrinkVertically() + fadeOut()
+    ) {
+        Column {
+            Spacer(modifier = Modifier.height(8.dp))
+
+            var expanded by remember { mutableStateOf(false) }
+            val presets = listOf(
+                SettingsRepository.PRESET_FLAT,
+                SettingsRepository.PRESET_VOICE,
+                SettingsRepository.PRESET_BOOST
             )
+
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = preset,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Preset") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    modifier = Modifier
+                        .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                        .fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    presets.forEach { selection ->
+                        DropdownMenuItem(
+                            text = { Text(selection) },
+                            onClick = {
+                                onPresetChange(selection)
+                                expanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                bandLevels.toSortedMap().forEach { (bandId, level) ->
+                    VerticalBandSlider(
+                        bandId = bandId,
+                        level = level,
+                        frequency = bandFrequencies.getOrNull(bandId),
+                        valueRange = bandLevelRange,
+                        onLevelChange = { newLevel ->
+                            onBandLevelChange(bandId, newLevel)
+                        }
+                    )
+                }
+            }
         }
     }
 }

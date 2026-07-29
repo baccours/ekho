@@ -41,7 +41,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.baccours.ekho.ui.icons.Check
-import com.baccours.ekho.ui.icons.ChevronRight
+import com.baccours.ekho.ui.icons.ArrowRight
 import com.baccours.ekho.ui.icons.Icons
 import kotlin.math.roundToInt
 
@@ -193,7 +193,7 @@ fun SwipeToggle(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = if (checked) Icons.Check else Icons.ChevronRight,
+                imageVector = if (checked) Icons.Check else Icons.ArrowRight,
                 contentDescription = null,
                 tint = if (enabled) thumbContentColor else MaterialTheme.colorScheme.surface
             )

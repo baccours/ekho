@@ -10,9 +10,9 @@ import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
 @Suppress("UnusedReceiverParameter")
-val Icons.ChevronRight: ImageVector
+val Icons.ArrowRight: ImageVector
     get() {
-        val currentIcon = chevronRight
+        val currentIcon = arrowRight
         if (currentIcon != null) {
             return currentIcon
         }
@@ -40,6 +40,6 @@ val Icons.ChevronRight: ImageVector
             lineTo(10.0f, 18.0f)
             lineToRelative(6.0f, -6.0f)
             close()
-        }.build().also { chevronRight = it }
+        }.build().also { arrowRight = it }
     }
-private var chevronRight: ImageVector? = null
+private var arrowRight: ImageVector? = null
