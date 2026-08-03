@@ -1,4 +1,8 @@
 <resources>
-
-    <style name="Theme.Ekho" parent="Theme.Material3.DayNight.NoActionBar" />
+    <!-- Use a platform theme to avoid dependency on the Material Components (View-based) library -->
+    <style name="Theme.Ekho" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/dark_background</item>
+        <item name="android:statusBarColor">@color/dark_background</item>
+        <item name="android:navigationBarColor">@color/dark_background</item>
+    </style>
 </resources>

@@ -56,7 +56,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.datastore.preferences)
-    implementation(libs.material)
     implementation(libs.timber)
 
     testImplementation(libs.junit)

@@ -17,7 +17,7 @@ val Icons.ArrowRight: ImageVector
             return currentIcon
         }
         return ImageVector.Builder(
-            name = "Play",
+            name = "Arrow Right",
             defaultWidth = 24.0.dp,
             defaultHeight = 24.0.dp,
             viewportWidth = 24.0f,
@@ -33,12 +33,16 @@ val Icons.ArrowRight: ImageVector
             strokeLineMiter = 1.0f,
             pathFillType = PathFillType.NonZero
         ) {
-            moveTo(10.0f, 6.0f)
-            lineTo(8.59f, 7.41f)
+            moveTo(9.29f, 15.88f)
             lineTo(13.17f, 12.0f)
-            lineToRelative(-4.58f, 4.59f)
-            lineTo(10.0f, 18.0f)
-            lineToRelative(6.0f, -6.0f)
+            lineTo(9.29f, 8.12f)
+            curveToRelative(-0.39f, -0.39f, -0.39f, -1.02f, 0.0f, -1.41f)
+            curveToRelative(0.39f, -0.39f, 1.02f, -0.39f, 1.41f, 0.0f)
+            lineToRelative(4.59f, 4.59f)
+            curveToRelative(0.39f, 0.39f, 0.39f, 1.02f, 0.0f, 1.41f)
+            lineTo(10.7f, 17.3f)
+            curveToRelative(-0.39f, 0.39f, -1.02f, 0.39f, -1.41f, 0.0f)
+            curveToRelative(-0.38f, -0.39f, -0.39f, -1.03f, 0.0f, -1.42f)
             close()
         }.build().also { arrowRight = it }
     }

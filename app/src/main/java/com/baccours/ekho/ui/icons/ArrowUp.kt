@@ -17,7 +17,7 @@ val Icons.ArrowUp: ImageVector
             return currentIcon
         }
         return ImageVector.Builder(
-            name = "Play",
+            name = "Arrow Up",
             defaultWidth = 24.0.dp,
             defaultHeight = 24.0.dp,
             viewportWidth = 24.0f,
@@ -33,12 +33,16 @@ val Icons.ArrowUp: ImageVector
             strokeLineMiter = 1.0f,
             pathFillType = PathFillType.NonZero
         ) {
-            moveTo(7.41f, 15.41f)
+            moveTo(8.12f, 14.71f)
             lineTo(12.0f, 10.83f)
-            lineToRelative(4.59f, 4.58f)
-            lineTo(18.0f, 14.0f)
-            lineToRelative(-6.0f, -6.0f)
-            lineToRelative(-6.0f, 6.0f)
+            lineToRelative(3.88f, 3.88f)
+            curveToRelative(0.39f, 0.39f, 1.02f, 0.39f, 1.41f, 0.0f)
+            curveToRelative(0.39f, -0.39f, 0.39f, -1.02f, 0.0f, -1.41f)
+            lineTo(12.7f, 8.71f)
+            curveToRelative(-0.39f, -0.39f, -1.02f, -0.39f, -1.41f, 0.0f)
+            lineTo(6.7f, 13.3f)
+            curveToRelative(-0.39f, 0.39f, -0.39f, 1.02f, 0.0f, 1.41f)
+            curveToRelative(0.39f, 0.38f, 1.03f, 0.39f, 1.42f, 0.0f)
             close()
         }.build().also { arrowUp = it }
     }
