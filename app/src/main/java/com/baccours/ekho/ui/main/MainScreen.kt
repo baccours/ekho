@@ -3,7 +3,9 @@ package com.baccours.ekho.ui.main
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -40,6 +42,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -53,6 +56,10 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
@@ -60,33 +67,99 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.baccours.ekho.data.SettingsRepository
+import com.baccours.ekho.R
+import com.baccours.ekho.audio.EqualizerBands
+import com.baccours.ekho.data.EqPreset
 import com.baccours.ekho.service.AudioService
 import com.baccours.ekho.ui.components.SwipeToggle
-import com.baccours.ekho.ui.icons.Icons
 import com.baccours.ekho.ui.icons.ArrowDown
 import com.baccours.ekho.ui.icons.ArrowUp
+import com.baccours.ekho.ui.icons.Icons
 import com.baccours.ekho.ui.icons.Play
 import com.baccours.ekho.ui.icons.Stop
 import com.baccours.ekho.ui.theme.EkhoTheme
+import kotlin.math.roundToInt
+
+@Composable
+fun MainScreen(viewModel: MainViewModel = viewModel(factory = MainViewModel.Factory)) {
+    val context = LocalContext.current
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var micPermissionDenied by remember { mutableStateOf(false) }
+
+    fun startService() {
+        ContextCompat.startForegroundService(context, Intent(context, AudioService::class.java))
+    }
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        // Only the microphone is required. Notifications are optional: the foreground service
+        // runs without them, so a denial there must never block the app.
+        val micGranted = results[Manifest.permission.RECORD_AUDIO] == true
+        micPermissionDenied = !micGranted
+        if (micGranted) startService()
+    }
+
+    MainContent(
+        uiState = uiState,
+        bandFrequencies = viewModel.bandFrequencies,
+        bandLevelRange = viewModel.bandLevelRange,
+        micPermissionDenied = micPermissionDenied,
+        onToggleService = {
+            if (uiState.isServiceRunning) {
+                val intent = Intent(context, AudioService::class.java).apply {
+                    action = AudioService.ACTION_STOP
+                }
+                context.startService(intent)
+            } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED
+            ) {
+                micPermissionDenied = false
+                startService()
+            } else {
+                val permissions = buildList {
+                    add(Manifest.permission.RECORD_AUDIO)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+                        != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        add(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+                launcher.launch(permissions.toTypedArray())
+            }
+        },
+        onOpenAppSettings = {
+            context.startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", context.packageName, null)
+                )
+            )
+        },
+        onToggleBypass = { viewModel.setBypassLoopbackProtection(it) },
+        onPresetChange = { viewModel.setPreset(it) },
+        onBandLevelChange = { bandId, level -> viewModel.updateBandLevel(bandId, level) }
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(viewModel: MainViewModel = viewModel()) {
-    val context = LocalContext.current
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    
-    val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
-        // Permissions updated, ViewModel can react if needed, 
-        // but here we just let the UI recompose and check again on next click
-    }
-
+fun MainContent(
+    uiState: MainUiState,
+    bandFrequencies: List<Int>,
+    bandLevelRange: ClosedFloatingPointRange<Float>,
+    micPermissionDenied: Boolean,
+    onToggleService: () -> Unit,
+    onOpenAppSettings: () -> Unit,
+    onToggleBypass: (Boolean) -> Unit,
+    onPresetChange: (EqPreset) -> Unit,
+    onBandLevelChange: (Int, Int) -> Unit
+) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Ekho", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.app_name), fontWeight = FontWeight.Bold) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -110,7 +183,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                 Column {
                     SafetyStatusCard(
                         bypassLoopbackProtection = uiState.bypassLoopbackProtection,
-                        onToggleBypass = { viewModel.setBypassLoopbackProtection(it) }
+                        onToggleBypass = onToggleBypass
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                 }
@@ -119,47 +192,44 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
             ServiceControlButton(
                 isServiceRunning = uiState.isServiceRunning,
                 isStreaming = uiState.isStreaming,
-                onToggle = {
-                    if (uiState.isServiceRunning) {
-                        val intent = Intent(context, AudioService::class.java).apply {
-                            action = AudioService.ACTION_STOP
-                        }
-                        context.startService(intent)
-                    } else {
-                        val permissions = mutableListOf<String>()
-                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                            permissions.add(Manifest.permission.RECORD_AUDIO)
-                        }
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-                        }
+                hasError = uiState.hasError,
+                onToggle = onToggleService
+            )
 
-                        if (permissions.isNotEmpty()) {
-                            launcher.launch(permissions.toTypedArray())
-                        } else {
-                            val intent = Intent(context, AudioService::class.java)
-                            ContextCompat.startForegroundService(context, intent)
-                        }
+            if (micPermissionDenied) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = stringResource(R.string.permission_mic_required),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = onOpenAppSettings) {
+                        Text(stringResource(R.string.permission_open_settings))
                     }
                 }
-            )
+            }
 
             Spacer(modifier = Modifier.height(32.dp))
 
             EqualizerSection(
                 preset = uiState.preset,
                 bandLevels = uiState.bandLevels,
-                bandFrequencies = viewModel.bandFrequencies,
-                bandLevelRange = viewModel.bandLevelRange,
-                onPresetChange = { viewModel.setPreset(it) },
-                onBandLevelChange = { bandId, level -> viewModel.updateBandLevel(bandId, level) }
+                bandFrequencies = bandFrequencies,
+                bandLevelRange = bandLevelRange,
+                onPresetChange = onPresetChange,
+                onBandLevelChange = onBandLevelChange
             )
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SafetyStatusCard(
     bypassLoopbackProtection: Boolean,
@@ -177,15 +247,17 @@ fun SafetyStatusCard(
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             Text(
-                text = "Feedback Loop Risk",
+                text = stringResource(R.string.safety_title),
                 style = MaterialTheme.typography.titleMedium,
                 color = contentColor
             )
             Text(
-                text = if (bypassLoopbackProtection) "Slide left to re-enable safety"
-                    else "Slide right to bypass safety",
+                text = stringResource(
+                    if (bypassLoopbackProtection) R.string.safety_hint_bypassed
+                    else R.string.safety_hint_protected
+                ),
                 style = MaterialTheme.typography.labelMedium,
-                color = contentColor.copy(alpha = 0.5f)
+                color = contentColor.copy(alpha = 0.8f)
             )
             Spacer(modifier = Modifier.height(8.dp))
             SwipeToggle(
@@ -201,6 +273,7 @@ fun SafetyStatusCard(
 fun ServiceControlButton(
     isServiceRunning: Boolean,
     isStreaming: Boolean,
+    hasError: Boolean,
     onToggle: () -> Unit
 ) {
     val buttonColor = when {
@@ -209,11 +282,14 @@ fun ServiceControlButton(
         else -> MaterialTheme.colorScheme.secondary
     }
 
-    val buttonText = when {
-        !isServiceRunning -> "START"
-        isStreaming -> "STOP"
-        else -> "STANDBY (unsafe)"
-    }
+    val buttonText = stringResource(
+        when {
+            !isServiceRunning -> R.string.service_start
+            isStreaming -> R.string.service_stop
+            hasError -> R.string.service_error
+            else -> R.string.service_waiting
+        }
+    )
 
     Button(
         onClick = onToggle,
@@ -238,11 +314,11 @@ fun ServiceControlButton(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EqualizerSection(
-    preset: String,
-    bandLevels: Map<Int, Int>,
+    preset: EqPreset,
+    bandLevels: List<Int>,
     bandFrequencies: List<Int>,
     bandLevelRange: ClosedFloatingPointRange<Float>,
-    onPresetChange: (String) -> Unit,
+    onPresetChange: (EqPreset) -> Unit,
     onBandLevelChange: (Int, Int) -> Unit
 ) {
     var isEditing by remember { mutableStateOf(false) }
@@ -256,13 +332,15 @@ fun EqualizerSection(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
-            text = "Equalizer",
+            text = stringResource(R.string.equalizer_title),
             style = MaterialTheme.typography.headlineSmall,
         )
         Icon(
             imageVector = if (isEditing) Icons.ArrowUp
             else Icons.ArrowDown,
-            contentDescription = if (isEditing) "Collapse" else "Expand"
+            contentDescription = stringResource(
+                if (isEditing) R.string.collapse else R.string.expand
+            )
         )
     }
 
@@ -275,22 +353,16 @@ fun EqualizerSection(
             Spacer(modifier = Modifier.height(8.dp))
 
             var expanded by remember { mutableStateOf(false) }
-            val presets = listOf(
-                SettingsRepository.PRESET_FLAT,
-                SettingsRepository.PRESET_VOICE,
-                SettingsRepository.PRESET_BOOST
-            )
-
             ExposedDropdownMenuBox(
                 expanded = expanded,
                 onExpandedChange = { expanded = !expanded },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 OutlinedTextField(
-                    value = preset,
+                    value = stringResource(preset.labelRes()),
                     onValueChange = {},
                     readOnly = true,
-                    label = { Text("Preset") },
+                    label = { Text(stringResource(R.string.preset_label)) },
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                     modifier = Modifier
                         .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
@@ -300,9 +372,9 @@ fun EqualizerSection(
                     expanded = expanded,
                     onDismissRequest = { expanded = false }
                 ) {
-                    presets.forEach { selection ->
+                    EqPreset.selectable.forEach { selection ->
                         DropdownMenuItem(
-                            text = { Text(selection) },
+                            text = { Text(stringResource(selection.labelRes())) },
                             onClick = {
                                 onPresetChange(selection)
                                 expanded = false
@@ -321,7 +393,7 @@ fun EqualizerSection(
                     .padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                bandLevels.toSortedMap().forEach { (bandId, level) ->
+                bandLevels.forEachIndexed { bandId, level ->
                     VerticalBandSlider(
                         bandId = bandId,
                         level = level,
@@ -345,12 +417,20 @@ fun VerticalBandSlider(
     valueRange: ClosedFloatingPointRange<Float>,
     onLevelChange: (Int) -> Unit
 ) {
+    val freqText = when {
+        frequency == null -> stringResource(R.string.band_fallback, bandId + 1)
+        frequency >= 1000 -> stringResource(R.string.band_freq_khz, frequency / 1000)
+        else -> stringResource(R.string.band_freq_hz, frequency)
+    }
+    val levelText = stringResource(R.string.band_level_format, (level / 100f).roundToInt())
+    val bandDescription = stringResource(R.string.band_description, freqText)
+
     Column(
         modifier = Modifier.width(64.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = "${level / 100} dB",
+            text = levelText,
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.primary
@@ -361,7 +441,7 @@ fun VerticalBandSlider(
         // Vertical Slider using rotation
         Slider(
             value = level.toFloat(),
-            onValueChange = { onLevelChange(it.toInt()) },
+            onValueChange = { onLevelChange(snapToDecibel(it)) },
             valueRange = valueRange,
             modifier = Modifier
                 .height(200.dp)
@@ -381,6 +461,10 @@ fun VerticalBandSlider(
                     layout(placeable.height, placeable.width) {
                         placeable.place(-placeable.width, 0)
                     }
+                }
+                .semantics {
+                    contentDescription = bandDescription
+                    stateDescription = levelText
                 },
             colors = SliderDefaults.colors(
                 thumbColor = MaterialTheme.colorScheme.primary,
@@ -391,11 +475,6 @@ fun VerticalBandSlider(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        val freqText = when {
-            frequency == null -> "B${bandId + 1}"
-            frequency >= 1000 -> "${frequency / 1000} kHz"
-            else -> "$frequency Hz"
-        }
         Text(
             text = freqText,
             style = MaterialTheme.typography.bodyMedium,
@@ -404,10 +483,35 @@ fun VerticalBandSlider(
     }
 }
 
+/** Slider positions are snapped to whole decibels (levels are stored in millibels). */
+private fun snapToDecibel(value: Float): Int = (value / 100f).roundToInt() * 100
+
+private fun EqPreset.labelRes(): Int = when (this) {
+    EqPreset.FLAT -> R.string.preset_flat
+    EqPreset.VOICE -> R.string.preset_voice
+    EqPreset.BOOST -> R.string.preset_boost
+    EqPreset.CUSTOM -> R.string.preset_custom
+}
+
 @Preview(showBackground = true)
 @Composable
 fun MainScreenPreview() {
     EkhoTheme {
-        MainScreen()
+        MainContent(
+            uiState = MainUiState(
+                preset = EqPreset.CUSTOM,
+                bandLevels = listOf(200, 0, -300, 100, 0),
+                isLoopbackSafe = false,
+                isServiceRunning = true
+            ),
+            bandFrequencies = EqualizerBands.FREQUENCIES_HZ,
+            bandLevelRange = EqualizerBands.MIN_LEVEL_MB.toFloat()..EqualizerBands.MAX_LEVEL_MB.toFloat(),
+            micPermissionDenied = false,
+            onToggleService = {},
+            onOpenAppSettings = {},
+            onToggleBypass = {},
+            onPresetChange = {},
+            onBandLevelChange = { _, _ -> }
+        )
     }
 }

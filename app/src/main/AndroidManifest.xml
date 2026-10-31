@@ -31,7 +31,6 @@
 
         <service
             android:name=".service.AudioService"
-            android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="microphone" />
     </application>
