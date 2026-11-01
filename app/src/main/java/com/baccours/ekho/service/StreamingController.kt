@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 enum class StreamingStatus { Streaming, Waiting, Error }
 
@@ -53,6 +55,7 @@ class StreamingController(
     companion object {
         const val DEFAULT_RETRY_DELAY_MS = 3_000L
         private const val MAX_BACKOFF_SHIFT = 3 // retries back off up to 8x after route violations
+        private val HEALTHY_SESSION = 10.seconds // a session this long is not part of a violation streak
     }
 
     private var lastStatus: StreamingStatus? = null
@@ -93,6 +96,7 @@ class StreamingController(
                 if (target.allowed) {
                     report(StreamingStatus.Streaming)
                     val output = target.outputDeviceId?.let { devices.findOutputDevice(it) }
+                    val startedAt = TimeSource.Monotonic.markNow()
                     when (engine.start(output, target.requireSafeRoute)) {
                         StreamResult.Stopped -> {
                             report(StreamingStatus.Waiting)
@@ -107,9 +111,11 @@ class StreamingController(
 
                         StreamResult.RouteUnsafe -> {
                             // Cut before any audio was audible; back off in case the route
-                            // cannot be fixed by retrying.
-                            routeViolations++
-                            report(StreamingStatus.Waiting)
+                            // cannot be fixed by retrying. Reported as an error so the user
+                            // sees that streaming is not working instead of a silent wait.
+                            routeViolations =
+                                if (startedAt.elapsedNow() > HEALTHY_SESSION) 1 else routeViolations + 1
+                            report(StreamingStatus.Error)
                         }
                     }
                 } else {

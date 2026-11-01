@@ -14,7 +14,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -49,6 +48,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,11 +84,7 @@ import kotlin.math.roundToInt
 fun MainScreen(viewModel: MainViewModel = viewModel(factory = MainViewModel.Factory)) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    var micPermissionDenied by remember { mutableStateOf(false) }
-
-    fun startService() {
-        ContextCompat.startForegroundService(context, Intent(context, AudioService::class.java))
-    }
+    var micPermissionDenied by rememberSaveable { mutableStateOf(false) }
 
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -97,7 +93,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel(factory = MainViewModel.Fact
         // runs without them, so a denial there must never block the app.
         val micGranted = results[Manifest.permission.RECORD_AUDIO] == true
         micPermissionDenied = !micGranted
-        if (micGranted) startService()
+        if (micGranted) AudioService.start(context)
     }
 
     MainContent(
@@ -107,15 +103,12 @@ fun MainScreen(viewModel: MainViewModel = viewModel(factory = MainViewModel.Fact
         micPermissionDenied = micPermissionDenied,
         onToggleService = {
             if (uiState.isServiceRunning) {
-                val intent = Intent(context, AudioService::class.java).apply {
-                    action = AudioService.ACTION_STOP
-                }
-                context.startService(intent)
+                AudioService.stop(context)
             } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
                 == PackageManager.PERMISSION_GRANTED
             ) {
                 micPermissionDenied = false
-                startService()
+                AudioService.start(context)
             } else {
                 val permissions = buildList {
                     add(Manifest.permission.RECORD_AUDIO)
@@ -324,7 +317,7 @@ fun EqualizerSection(
     onPresetChange: (EqPreset) -> Unit,
     onBandLevelChange: (Int, Int) -> Unit
 ) {
-    var isEditing by remember { mutableStateOf(false) }
+    var isEditing by rememberSaveable { mutableStateOf(false) }
 
     Row(
         modifier = Modifier
@@ -392,9 +385,7 @@ fun EqualizerSection(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    .padding(vertical = 8.dp)
             ) {
                 bandLevels.forEachIndexed { bandId, level ->
                     VerticalBandSlider(
@@ -404,7 +395,8 @@ fun EqualizerSection(
                         valueRange = bandLevelRange,
                         onLevelChange = { newLevel ->
                             onBandLevelChange(bandId, newLevel)
-                        }
+                        },
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -418,7 +410,8 @@ fun VerticalBandSlider(
     level: Int,
     frequency: Int?,
     valueRange: ClosedFloatingPointRange<Float>,
-    onLevelChange: (Int) -> Unit
+    onLevelChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val freqText = when {
         frequency == null -> stringResource(R.string.band_fallback, bandId + 1)
@@ -429,7 +422,7 @@ fun VerticalBandSlider(
     val bandDescription = stringResource(R.string.band_description, freqText)
 
     Column(
-        modifier = Modifier.width(64.dp),
+        modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(

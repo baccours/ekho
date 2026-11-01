@@ -14,28 +14,32 @@ enum class RouteState { Safe, Unsafe, Unknown }
  * speaker, so Bluetooth outputs are accepted as a whole.
  */
 object LoopbackSafety {
-
-    /** True for wired/USB outputs, which win over the other safe types when both are present. */
-    fun isPreferredType(deviceType: Int): Boolean = when (deviceType) {
+    /** Priority rank for safe output selection (lower is better). */
+    fun devicePriority(deviceType: Int): Int? = when (deviceType) {
         AudioDeviceInfo.TYPE_WIRED_HEADSET,
-        AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
-        AudioDeviceInfo.TYPE_USB_HEADSET,
+        AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> 0
+
+        AudioDeviceInfo.TYPE_USB_HEADSET -> 1
+
         AudioDeviceInfo.TYPE_USB_DEVICE,
         AudioDeviceInfo.TYPE_USB_ACCESSORY,
-        AudioDeviceInfo.TYPE_LINE_ANALOG,
-        AudioDeviceInfo.TYPE_LINE_DIGITAL -> true
-        else -> false
+        AudioDeviceInfo.TYPE_LINE_DIGITAL,
+        AudioDeviceInfo.TYPE_LINE_ANALOG -> 2
+
+        AudioDeviceInfo.TYPE_HEARING_AID,
+        AudioDeviceInfo.TYPE_BLE_HEADSET -> 3
+
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> 4
+        AudioDeviceInfo.TYPE_BLE_SPEAKER -> 5
+        AudioDeviceInfo.TYPE_BLE_BROADCAST -> 6
+        // SCO voice call outputs (fallback only, as SCO conflicts with USAGE_MEDIA tracks)
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> 7
+
+        // Deliberately excluded: TYPE_BUILTIN_SPEAKER is loudspeaker.
+        else -> null
     }
 
-    fun isSafeType(deviceType: Int): Boolean = isPreferredType(deviceType) || when (deviceType) {
-        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
-        AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
-        AudioDeviceInfo.TYPE_BLE_HEADSET,
-        AudioDeviceInfo.TYPE_BLE_SPEAKER,
-        AudioDeviceInfo.TYPE_BLE_BROADCAST,
-        AudioDeviceInfo.TYPE_HEARING_AID -> true
-        else -> false
-    }
+    fun isSafeType(deviceType: Int): Boolean = devicePriority(deviceType) != null
 
     /** Classifies the device a stream is routed to; null means the route is not known (yet). */
     fun classify(routedDeviceType: Int?): RouteState = when {

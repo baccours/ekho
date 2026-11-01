@@ -1,72 +1,44 @@
-# Ekho - Professional Audio Monitoring & EQ
+# Ekho
 
-**Ekho** is a high-performance, low-latency audio monitoring application designed for real-time microphone pass-through and equalization. Built with a focus on precision and persistence, it allows users to monitor their environment or audio input with professional-grade signal processing.
+Android app that streams the phone's built-in microphone to your headphones in real time, with a 5-band equalizer. Meant for live monitoring and for hearing your surroundings (for example baby-monitor use with a Bluetooth speaker).
 
----
+## Features
 
-## 🚀 Key Features
+- **Low-latency pass-through**: `AudioRecord` to `AudioTrack` on a dedicated audio thread, mono, 10 ms chunks, device-native sample rate.
+- **5-band equalizer**: peaking filters at 60 Hz, 230 Hz, 910 Hz, 3.6 kHz and 14 kHz, ±15 dB in 1 dB steps, followed by a peak limiter. Implemented in-app so the bands are identical on every device and the low-latency path is kept.
+- **Presets**: Flat, Voice Clarity, Boost, plus Custom once you move a slider.
+- **Runs in the background**: foreground service of type `microphone`; the notification has a Stop action. The service never restarts on its own.
 
-- **Real-Time Pass-Through**: Instantaneous microphone-to-output streaming with optimized latency for live monitoring.
-- **5-Band Graphic Equalizer**: Built-in DSP (peaking biquad filters plus a peak limiter) with +/- 15dB per band. Bands are identical on every device.
-- **Intelligent Audio Routing**:
-  - Automatic headphone detection and safety interlocks to prevent feedback loops.
-  - Optional "Allow Speaker" mode for specialized monitoring scenarios.
-- **Persistent Foreground Service**: Leverages Android's `FOREGROUND_SERVICE_MICROPHONE` type to ensure audio processing remains uninterrupted when the app is backgrounded or the screen is locked.
-- **Material 3 Interface**: Modern, expressive design with high-contrast UI elements and responsive controls.
-- **Audio Presets**: Quick-access settings for common scenarios:
-  - **Flat**: Neutral frequency response.
-  - **Voice**: Enhanced clarity for vocal monitoring.
-  - **Boost**: Amplified output for low-signal environments.
+## Feedback protection
 
----
+Streaming only runs while a safe output is connected: wired or USB headphones, Bluetooth (including LE and hearing aids). The phone's own speaker and earpiece are not safe.
 
-## 🛠 Tech Stack
+- Output is pinned to the safe device and stays muted until the actual route is confirmed safe.
+- The stream is cut if it is ever routed elsewhere, then retried with backoff.
+- Audio failures (for example microphone busy) are retried every 3 seconds.
+- "Slide to bypass safety" lets it stream without a safe output. The setting is remembered, a warning stays visible while it is on, and it is excluded from backups.
 
-- **Language**: Kotlin 2.0+
-- **UI Framework**: Jetpack Compose (Material 3)
-- **Architecture**: MVVM (Model-View-ViewModel) with a Repository pattern for state management.
-- **State Management**: Kotlin Flow (StateFlow) and Coroutines.
-- **Background Execution**: Android Foreground Service with Android 14+ compatibility (Microphone type).
-- **Audio Logic**: `AudioRecord` and `AudioTrack` on a dedicated audio thread (10 ms chunks, native sample rate, low-latency performance mode) with in-app equalizer DSP. The platform `Equalizer` effect is deliberately not used because effects prevent the low-latency audio path.
-- **Data Persistence**: Jetpack DataStore for saving presets and band levels.
+## Structure
 
----
+Single module, manual DI (`AppContainer`), no extra frameworks.
 
-## 🏗 Architecture & Standards
+| Package | Role |
+| :--- | :--- |
+| `audio` | `AudioProcessor` (record/track/DSP), `BiquadEqualizer`, `RouteGuard`, `LoopbackSafety`, `AudioDeviceMonitor` |
+| `service` | `AudioService` (notification host), `StreamingController` (when to stream and retry, no Android dependencies), `ServiceState` |
+| `data` | `SettingsRepository` (Preferences DataStore), `EqPreset` |
+| `ui` | Compose Material 3 screen, `MainViewModel`, `SwipeToggle`, theme |
 
-Ekho is built following modern Android Development standards:
-- **Layered Architecture**: UI (Compose + ViewModel), a `StreamingController` that owns the streaming policy (testable without Android), the audio engine, and Data repositories, wired through a small manual `AppContainer`.
-- **Single Source of Truth**: `SettingsRepository` manages the global state of equalizer bands and app preferences, synchronized across the Service and UI.
-- **Material 3 Expressive**: Adherence to the latest design guidelines, featuring dynamic layout transitions and accessible component styling.
-- **Safety First Logic**: Built-in protections against feedback loops by requiring headphone connection by default. Output is pinned to the detected headphone device, stays muted until the actual audio route is confirmed safe, and is cut if it is ever routed elsewhere (for example to the speaker after an unplug). The speaker bypass is remembered, but while it is on a warning card stays visible even when headphones are connected, and the setting is never included in backups. External speakers such as a Bluetooth LE speaker count as safe outputs (baby-monitor use); only the phone's own speaker and earpiece do not.
+## Build
 
----
+- Kotlin 2.4, AGP 9.5, Compose BOM 2026.09, Material 3, DataStore, Coroutines, Timber
+- `minSdk` 24, `compileSdk`/`targetSdk` 37; the JDK is provisioned by the Gradle toolchain
+- Open in Android Studio and run `:app` on a physical device, or `./gradlew assembleDebug`
+- Unit tests: `./gradlew test` (JUnit, `kotlinx-coroutines-test`)
+- Release builds have no signing config; add one before distributing.
 
-## ⚙️ Setup Instructions
+## Permissions
 
-### Prerequisites
-- Android Studio Ladybug (or newer)
-- Android SDK 36
-- Kotlin 2.x
-
-### Build Steps
-1. Clone the repository.
-2. Open the project in Android Studio.
-3. Sync Project with Gradle Files.
-4. Run the `:app` module on a device (Physical device recommended for audio latency testing).
-
-### Permissions
-The app requires the following permissions for full functionality:
-- `RECORD_AUDIO`: Required for microphone pass-through.
-- `FOREGROUND_SERVICE_MICROPHONE`: Required for background audio processing (Android 14+).
-- `POST_NOTIFICATIONS`: For persistent service controls in the notification shade.
-
----
-
-## 🎨 Design Aesthetic
-Ekho utilizes a **modern Material 3 palette** with high-contrast surfaces to ensure readability in various lighting conditions. The UI features custom vertical slider components for the equalizer, providing a tactile and intuitive mixing experience.
-
-
-## Release signing
-
-Release builds are signed with the debug key unless these Gradle properties are set (for example in `~/.gradle/gradle.properties`): `ekho.keystore.file`, `ekho.keystore.password`, `ekho.key.alias`, `ekho.key.password`.
+- `RECORD_AUDIO`: required
+- `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_MICROPHONE`: background streaming
+- `POST_NOTIFICATIONS` (Android 13+): optional; without it the service still runs, but its notification is hidden

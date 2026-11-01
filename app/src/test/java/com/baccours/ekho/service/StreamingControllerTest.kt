@@ -4,47 +4,46 @@ import android.media.AudioDeviceInfo
 import com.baccours.ekho.audio.AudioEngine
 import com.baccours.ekho.audio.OutputDevices
 import com.baccours.ekho.audio.StreamResult
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
-import org.junit.After
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration.Companion.milliseconds
 
+/** Runs on virtual time: the retry delay is skipped, not waited for. */
+@OptIn(ExperimentalCoroutinesApi::class)
 class StreamingControllerTest {
 
+    private companion object {
+        const val RETRY_MS = 10L
+    }
+
     private class FakeEngine(vararg scripted: StreamResult) : AudioEngine {
-        private val script = ConcurrentLinkedQueue(scripted.toList())
-        val starts = AtomicInteger(0)
-        @Volatile var lastRequireSafeRoute: Boolean? = null
-        val stops = AtomicInteger(0)
-        val levels = CopyOnWriteArrayList<List<Int>>()
+        private val script = ArrayDeque(scripted.toList())
+        var starts = 0
+        var stops = 0
+        var lastRequireSafeRoute: Boolean? = null
+        val levels = mutableListOf<List<Int>>()
 
         // Returns the next scripted result, then streams until canceled.
         override suspend fun start(preferredOutput: AudioDeviceInfo?, requireSafeRoute: Boolean): StreamResult {
             lastRequireSafeRoute = requireSafeRoute
-            starts.incrementAndGet()
-            return script.poll() ?: awaitCancellation()
+            starts++
+            return script.removeFirstOrNull() ?: awaitCancellation()
         }
 
         override fun stop() {
-            stops.incrementAndGet()
+            stops++
         }
 
         override fun setBandLevels(levels: List<Int>) {
@@ -56,7 +55,7 @@ class StreamingControllerTest {
         private val reported = MutableStateFlow(initialSafeDeviceId)
 
         /** What a direct query returns; can differ from the events to simulate a missed event. */
-        @Volatile var actualSafeDeviceId: Int? = initialSafeDeviceId
+        var actualSafeDeviceId: Int? = initialSafeDeviceId
 
         override val safeOutputDeviceIdFlow: Flow<Int?> = reported
         override fun findOutputDevice(id: Int): AudioDeviceInfo? = null
@@ -69,35 +68,30 @@ class StreamingControllerTest {
         }
     }
 
-    private val scope = CoroutineScope(Dispatchers.Default + Job())
-    private val statuses = Channel<StreamingStatus>(Channel.UNLIMITED)
-
-    @After
-    fun tearDown() {
-        scope.cancel()
-    }
-
-    private fun launchController(
+    /** Starts a controller and returns the statuses it reports, in order. */
+    private fun TestScope.launchController(
         engine: FakeEngine,
         devices: FakeDevices,
         bypass: MutableStateFlow<Boolean> = MutableStateFlow(false),
         levels: Flow<List<Int>> = MutableStateFlow(emptyList())
-    ) {
+    ): List<StreamingStatus> {
+        val statuses = mutableListOf<StreamingStatus>()
         val controller = StreamingController(
             engine = engine,
             devices = devices,
             bypassProtection = bypass,
             bandLevels = levels,
-            onStatusChanged = { statuses.trySend(it) },
-            retryDelayMs = 10
+            onStatusChanged = { statuses += it },
+            retryDelayMs = RETRY_MS
         )
-        scope.launch { controller.run() }
+        backgroundScope.launch { controller.run() }
+        runCurrent()
+        return statuses
     }
 
-    private suspend fun nextStatus(): StreamingStatus = withTimeout(2_000.milliseconds) { statuses.receive() }
-
-    private suspend fun awaitUntil(condition: () -> Boolean) = withTimeout(2_000.milliseconds) {
-        while (!condition()) delay(5.milliseconds)
+    private fun TestScope.advance(ms: Long) {
+        advanceTimeBy(ms.milliseconds)
+        runCurrent()
     }
 
     @Test
@@ -114,139 +108,160 @@ class StreamingControllerTest {
     }
 
     @Test
-    fun waitsWithoutSafeOutput() = runBlocking {
+    fun waitsWithoutSafeOutput() = runTest {
         val engine = FakeEngine()
-        launchController(engine, FakeDevices(null))
+        val statuses = launchController(engine, FakeDevices(null))
 
-        assertEquals(StreamingStatus.Waiting, nextStatus())
-        delay(100.milliseconds)
-        assertEquals(0, engine.starts.get())
+        assertEquals(listOf(StreamingStatus.Waiting), statuses)
+        advance(100)
+        assertEquals(0, engine.starts)
     }
 
     @Test
-    fun streamsWhenSafeOutputIsConnected() = runBlocking {
+    fun streamsWhenSafeOutputIsConnected() = runTest {
         val engine = FakeEngine()
-        launchController(engine, FakeDevices(7))
+        val statuses = launchController(engine, FakeDevices(7))
 
-        assertEquals(StreamingStatus.Streaming, nextStatus())
-        awaitUntil { engine.starts.get() == 1 }
+        assertEquals(listOf(StreamingStatus.Streaming), statuses)
+        assertEquals(1, engine.starts)
     }
 
     @Test
-    fun bypassAllowsStreamingWithoutSafeOutput() = runBlocking {
+    fun bypassAllowsStreamingWithoutSafeOutput() = runTest {
         val engine = FakeEngine()
-        launchController(engine, FakeDevices(null), bypass = MutableStateFlow(true))
+        val statuses = launchController(engine, FakeDevices(null), bypass = MutableStateFlow(true))
 
-        assertEquals(StreamingStatus.Streaming, nextStatus())
-        awaitUntil { engine.starts.get() == 1 }
+        assertEquals(listOf(StreamingStatus.Streaming), statuses)
+        assertEquals(1, engine.starts)
     }
 
     @Test
-    fun unpluggingStopsStreaming() = runBlocking {
+    fun unpluggingStopsStreaming() = runTest {
         val engine = FakeEngine()
         val devices = FakeDevices(7)
-        launchController(engine, devices)
-        assertEquals(StreamingStatus.Streaming, nextStatus())
-        awaitUntil { engine.starts.get() == 1 }
+        val statuses = launchController(engine, devices)
 
         devices.setSafeDevice(null)
+        runCurrent()
 
-        assertEquals(StreamingStatus.Waiting, nextStatus())
-        awaitUntil { engine.stops.get() >= 1 }
+        assertEquals(listOf(StreamingStatus.Streaming, StreamingStatus.Waiting), statuses)
+        assertTrue(engine.stops >= 1)
     }
 
     @Test
-    fun switchingOutputDeviceRestartsTheStream() = runBlocking {
+    fun switchingOutputDeviceRestartsTheStream() = runTest {
         val engine = FakeEngine()
         val devices = FakeDevices(7)
         launchController(engine, devices)
-        assertEquals(StreamingStatus.Streaming, nextStatus())
-        awaitUntil { engine.starts.get() == 1 }
 
         devices.setSafeDevice(9)
+        runCurrent()
 
-        awaitUntil { engine.starts.get() == 2 }
+        assertEquals(2, engine.starts)
     }
 
     @Test
-    fun failuresAreSurfacedAndRetried() = runBlocking {
+    fun failuresAreSurfacedAndRetried() = runTest {
         val engine = FakeEngine(StreamResult.Failed)
-        launchController(engine, FakeDevices(7))
+        val statuses = launchController(engine, FakeDevices(7))
+        assertEquals(listOf(StreamingStatus.Streaming, StreamingStatus.Error), statuses)
 
-        assertEquals(StreamingStatus.Streaming, nextStatus())
-        assertEquals(StreamingStatus.Error, nextStatus())
-        assertEquals(StreamingStatus.Streaming, nextStatus())
-        awaitUntil { engine.starts.get() == 2 }
+        advance(RETRY_MS)
+
+        assertEquals(
+            listOf(StreamingStatus.Streaming, StreamingStatus.Error, StreamingStatus.Streaming),
+            statuses
+        )
+        assertEquals(2, engine.starts)
     }
 
     @Test
-    fun bandLevelsAreForwardedToTheEngine() = runBlocking {
+    fun bandLevelsAreForwardedToTheEngine() = runTest {
         val engine = FakeEngine()
         val levels = MutableStateFlow(listOf(100, 0, 0, 0, 0))
         launchController(engine, FakeDevices(null), levels = levels)
+        assertTrue(engine.levels.contains(listOf(100, 0, 0, 0, 0)))
 
-        awaitUntil { engine.levels.contains(listOf(100, 0, 0, 0, 0)) }
         levels.value = listOf(0, 200, 0, 0, 0)
-        awaitUntil { engine.levels.contains(listOf(0, 200, 0, 0, 0)) }
+        runCurrent()
+
+        assertTrue(engine.levels.contains(listOf(0, 200, 0, 0, 0)))
     }
 
     @Test
-    fun routeIsVerifiedWhenProtectionIsActive() = runBlocking {
+    fun routeIsVerifiedWhenProtectionIsActive() = runTest {
         val engine = FakeEngine()
         launchController(engine, FakeDevices(7))
 
-        awaitUntil { engine.starts.get() == 1 }
         assertEquals(true, engine.lastRequireSafeRoute)
     }
 
     @Test
-    fun routeIsNotVerifiedWhenProtectionIsBypassed() = runBlocking {
+    fun routeIsNotVerifiedWhenProtectionIsBypassed() = runTest {
         val engine = FakeEngine()
         launchController(engine, FakeDevices(7), bypass = MutableStateFlow(true))
 
-        awaitUntil { engine.starts.get() == 1 }
         assertEquals(false, engine.lastRequireSafeRoute)
     }
 
     @Test
-    fun unsafeRouteIsCutAndRetried() = runBlocking {
+    fun unsafeRouteIsCutAndRetried() = runTest {
         val engine = FakeEngine(StreamResult.RouteUnsafe)
-        launchController(engine, FakeDevices(7))
+        val statuses = launchController(engine, FakeDevices(7))
+        assertEquals(listOf(StreamingStatus.Streaming, StreamingStatus.Error), statuses)
 
-        assertEquals(StreamingStatus.Streaming, nextStatus())
-        assertEquals(StreamingStatus.Waiting, nextStatus())
-        assertEquals(StreamingStatus.Streaming, nextStatus())
-        awaitUntil { engine.starts.get() == 2 }
+        advance(RETRY_MS)
+
+        assertEquals(
+            listOf(StreamingStatus.Streaming, StreamingStatus.Error, StreamingStatus.Streaming),
+            statuses
+        )
+        assertEquals(2, engine.starts)
     }
 
     @Test
-    fun retryDoesNotTrustAStaleDeviceAfterAMissedEvent() = runBlocking {
+    fun repeatedRouteViolationsBackOff() = runTest {
+        val engine = FakeEngine(StreamResult.RouteUnsafe, StreamResult.RouteUnsafe)
+        launchController(engine, FakeDevices(7))
+
+        advance(RETRY_MS) // first retry after 1x
+        assertEquals(2, engine.starts)
+        advance(2 * RETRY_MS - 1) // second retry waits 2x
+        assertEquals(2, engine.starts)
+        advance(1)
+        assertEquals(3, engine.starts)
+    }
+
+    @Test
+    fun retryDoesNotTrustAStaleDeviceAfterAMissedEvent() = runTest {
         val engine = FakeEngine(StreamResult.Failed)
         val devices = FakeDevices(7)
         devices.actualSafeDeviceId = null // the unplug event never reached the controller
+        val statuses = launchController(engine, devices)
 
-        launchController(engine, devices)
+        advance(RETRY_MS)
 
-        assertEquals(StreamingStatus.Streaming, nextStatus())
-        assertEquals(StreamingStatus.Error, nextStatus())
-        assertEquals(StreamingStatus.Waiting, nextStatus())
-        delay(100.milliseconds)
-        assertEquals(1, engine.starts.get())
+        assertEquals(
+            listOf(StreamingStatus.Streaming, StreamingStatus.Error, StreamingStatus.Waiting),
+            statuses
+        )
+        advance(100)
+        assertEquals(1, engine.starts)
     }
 
     @Test
-    fun retryResumesWhenTheDeviceReturnsWithoutAnEvent() = runBlocking {
+    fun retryResumesWhenTheDeviceReturnsWithoutAnEvent() = runTest {
         val engine = FakeEngine(StreamResult.Failed)
         val devices = FakeDevices(7)
         devices.actualSafeDeviceId = null
-        launchController(engine, devices)
-        assertEquals(StreamingStatus.Streaming, nextStatus())
-        assertEquals(StreamingStatus.Error, nextStatus())
-        assertEquals(StreamingStatus.Waiting, nextStatus())
+        val statuses = launchController(engine, devices)
+        advance(RETRY_MS)
+        assertEquals(StreamingStatus.Waiting, statuses.last())
 
         devices.actualSafeDeviceId = 7
+        advance(RETRY_MS)
 
-        assertEquals(StreamingStatus.Streaming, nextStatus())
-        awaitUntil { engine.starts.get() == 2 }
+        assertEquals(StreamingStatus.Streaming, statuses.last())
+        assertEquals(2, engine.starts)
     }
 }

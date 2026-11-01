@@ -37,7 +37,13 @@ enum class StreamResult {
 }
 
 class AudioProcessor(
-    private val preferredSampleRate: Int = DEFAULT_SAMPLE_RATE
+    private val preferredSampleRate: Int = DEFAULT_SAMPLE_RATE,
+    /**
+     * The microphone to record from, or null for the platform default. Pinning the phone's own
+     * microphone keeps a connected headset's microphone (right next to the earpiece, and sometimes
+     * silent or mis-detected) from being picked automatically.
+     */
+    private val inputDevice: () -> AudioDeviceInfo? = { null }
 ) : AudioEngine {
 
     companion object {
@@ -47,11 +53,9 @@ class AudioProcessor(
         private const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
         private const val CHANNEL_IN = AudioFormat.CHANNEL_IN_MONO
         private const val CHANNEL_OUT = AudioFormat.CHANNEL_OUT_MONO
-        private const val ROUTE_POLL_MILLIS = 50L
-
-        // If the platform never reports a route, stop waiting for confirmation and rely on the
-        // device pinning and the device callbacks instead of staying silent forever.
-        private const val UNKNOWN_ROUTE_TIMEOUT_MILLIS = 1_500L
+        // Backup poll for the routing callback: fast until the route is confirmed, then slow.
+        private const val ROUTE_POLL_FAST_MILLIS = 50L
+        private const val ROUTE_POLL_SLOW_MILLIS = 250L
 
         /** The device's native output rate; using it avoids resampling and keeps the fast path. */
         fun nativeSampleRate(context: Context): Int {
@@ -67,14 +71,18 @@ class AudioProcessor(
 
     @Volatile private var audioRecord: AudioRecord? = null
     @Volatile private var audioTrack: AudioTrack? = null
-    @Volatile private var dsp: BiquadEqualizer? = null
-    @Volatile private var latestLevels: List<Int> = emptyList()
+
+    // Both guarded by levelsLock, so a level update cannot slip in while the equalizer is created.
+    private val levelsLock = Any()
+    private var dsp: BiquadEqualizer? = null
+    private var latestLevels: List<Int> = emptyList()
 
     // Route supervision (only used when a safe route is required).
     private val routeLock = Any()
+    private val routeGuard = RouteGuard() // guarded by routeLock
     @Volatile private var routingListener: AudioRouting.OnRoutingChangedListener? = null
     @Volatile private var routeViolated = false
-    private var unknownRouteSince = 0L // guarded by routeLock
+    private var lastLoggedRouteType: Int? = null // guarded by routeLock
 
     // Blocking reads must not occupy a shared pool thread; the audio thread also gets audio priority.
     private val audioDispatcher = Executors.newSingleThreadExecutor { runnable ->
@@ -87,7 +95,10 @@ class AudioProcessor(
     override suspend fun start(preferredOutput: AudioDeviceInfo?, requireSafeRoute: Boolean): StreamResult {
         if (!isProcessing.compareAndSet(false, true)) return StreamResult.Stopped
         routeViolated = false
-        synchronized(routeLock) { unknownRouteSince = 0L }
+        synchronized(routeLock) {
+            routeGuard.reset(SystemClock.elapsedRealtime())
+            lastLoggedRouteType = null
+        }
 
         return try {
             coroutineScope {
@@ -105,7 +116,9 @@ class AudioProcessor(
                 val routeMonitor = if (requireSafeRoute) {
                     launch(Dispatchers.Default) {
                         while (true) {
-                            delay(ROUTE_POLL_MILLIS.milliseconds)
+                            val pollMillis =
+                                if (routeGuard.isSafe) ROUTE_POLL_SLOW_MILLIS else ROUTE_POLL_FAST_MILLIS
+                            delay(pollMillis.milliseconds)
                             evaluateRoute()
                         }
                     }
@@ -151,8 +164,10 @@ class AudioProcessor(
     }
 
     override fun setBandLevels(levels: List<Int>) {
-        latestLevels = levels
-        dsp?.setLevels(levels)
+        synchronized(levelsLock) {
+            latestLevels = levels
+            dsp?.setLevels(levels)
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -165,12 +180,20 @@ class AudioProcessor(
         }
         audioRecord = record
 
+        inputDevice()?.let { mic ->
+            val pinned = record.setPreferredDevice(mic)
+            Timber.i("Input pinned to built-in microphone (id=${mic.id}): $pinned")
+        }
+
         val chunkSamples = sampleRate * CHUNK_MILLIS / 1000
         val track = buildTrack(sampleRate, chunkSamples * BYTES_PER_SAMPLE, preferredOutput)
         audioTrack = track
 
-        val equalizer = BiquadEqualizer(sampleRate).also { it.setLevels(latestLevels) }
-        dsp = equalizer
+        val equalizer = BiquadEqualizer(sampleRate)
+        synchronized(levelsLock) {
+            equalizer.setLevels(latestLevels)
+            dsp = equalizer
+        }
 
         if (!isProcessing.get()) return StreamResult.Stopped
 
@@ -218,41 +241,33 @@ class AudioProcessor(
         val track = audioTrack ?: return
         if (!isProcessing.get()) return
 
-        val state = try {
-            LoopbackSafety.classify(track.routedDevice?.type)
+        val routedType = try {
+            track.routedDevice?.type
         } catch (e: Exception) {
             Timber.w(e, "Could not query the routed device")
-            RouteState.Unknown
+            null
         }
 
-        synchronized(routeLock) { applyRouteState(state, track) }
+        val state = LoopbackSafety.classify(routedType)
+        synchronized(routeLock) {
+            if (routedType != lastLoggedRouteType) {
+                lastLoggedRouteType = routedType
+                Timber.i("Routed output type=$routedType -> $state")
+            }
+
+            when (routeGuard.onRoute(state, SystemClock.elapsedRealtime())) {
+                RouteGuard.Action.Unmute -> unmute(track)
+                RouteGuard.Action.Cut -> cut(routedType)
+                RouteGuard.Action.None -> Unit
+            }
+        }
     }
 
-    private fun applyRouteState(state: RouteState, track: AudioTrack) {
-        when (state) {
-            RouteState.Safe -> {
-                unknownRouteSince = 0L
-                unmute(track)
-            }
-
-            RouteState.Unsafe -> {
-                if (!routeViolated) {
-                    Timber.w("Stream routed to an unsafe output; cutting it")
-                    routeViolated = true
-                    stop()
-                }
-            }
-
-            RouteState.Unknown -> {
-                val now = SystemClock.elapsedRealtime()
-                if (unknownRouteSince == 0L) {
-                    unknownRouteSince = now
-                } else if (now - unknownRouteSince > UNKNOWN_ROUTE_TIMEOUT_MILLIS) {
-                    Timber.w("Route still unknown; unmuting based on device pinning")
-                    unmute(track)
-                }
-            }
-        }
+    private fun cut(routedType: Int? = null) {
+        if (routeViolated) return
+        Timber.w("Stream routed to an unsafe output (type=$routedType); cutting it")
+        routeViolated = true
+        stop()
     }
 
     private fun unmute(track: AudioTrack) {
@@ -327,14 +342,15 @@ class AudioProcessor(
         }
 
         // Pin the output to the safe device instead of trusting default routing.
-        if (preferredOutput != null && !track.setPreferredDevice(preferredOutput)) {
-            Timber.w("Could not pin output to device ${preferredOutput.id}")
+        if (preferredOutput != null) {
+            val pinned = track.setPreferredDevice(preferredOutput)
+            Timber.i("Output pinned to type=${preferredOutput.type} id=${preferredOutput.id}: $pinned")
         }
         return track
     }
 
     private fun releaseResources() {
-        dsp = null
+        synchronized(levelsLock) { dsp = null }
 
         audioRecord?.apply {
             try {

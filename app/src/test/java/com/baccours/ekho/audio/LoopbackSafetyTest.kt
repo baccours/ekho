@@ -29,11 +29,12 @@ class LoopbackSafetyTest {
     }
 
     @Test
-    fun wiredAndUsbOutputsArePreferredOverWireless() {
-        assertTrue(LoopbackSafety.isPreferredType(AudioDeviceInfo.TYPE_WIRED_HEADPHONES))
-        assertTrue(LoopbackSafety.isPreferredType(AudioDeviceInfo.TYPE_USB_HEADSET))
-        assertFalse(LoopbackSafety.isPreferredType(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP))
-        assertFalse(LoopbackSafety.isPreferredType(AudioDeviceInfo.TYPE_BLE_SPEAKER))
+    fun a2dpIsPrioritizedOverScoForMediaTracks() {
+        val wired = LoopbackSafety.devicePriority(AudioDeviceInfo.TYPE_WIRED_HEADPHONES)!!
+        val bluetooth = LoopbackSafety.devicePriority(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP)!!
+        val sco = LoopbackSafety.devicePriority(AudioDeviceInfo.TYPE_BLUETOOTH_SCO)!!
+        assertTrue(wired < bluetooth)
+        assertTrue(bluetooth < sco)
     }
 
     @Test

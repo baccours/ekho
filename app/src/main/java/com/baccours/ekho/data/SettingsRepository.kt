@@ -2,9 +2,11 @@ package com.baccours.ekho.data
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -13,12 +15,19 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
+// A corrupt file is replaced by defaults (flat EQ, protection on) instead of crashing.
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "settings",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
+)
 
 // Kept in its own file so that backup rules can exclude it: the feedback-protection bypass must
 // never be restored onto another device. Keep in sync with res/xml/backup_rules.xml and
 // res/xml/data_extraction_rules.xml.
-private val Context.safetyDataStore: DataStore<Preferences> by preferencesDataStore(name = "safety")
+private val Context.safetyDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "safety",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
+)
 
 /** Persisted equalizer configuration. [bandLevels] are in millibels, one per band. */
 data class EqSettings(
@@ -67,8 +76,8 @@ class SettingsRepository(private val context: Context) {
             preferences[PRESET_KEY] = preset.id
             if (preset == EqPreset.CUSTOM) return@edit
 
-            EqualizerBands.FREQUENCIES_HZ.forEachIndexed { band, frequency ->
-                preferences[bandKey(band)] = preset.levelFor(frequency)
+            preset.defaultBandLevels.forEachIndexed { band, level ->
+                preferences[bandKey(band)] = level
             }
         }
     }

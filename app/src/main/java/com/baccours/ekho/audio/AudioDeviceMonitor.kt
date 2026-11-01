@@ -26,12 +26,15 @@ class AudioDeviceMonitor(context: Context) : OutputDevices {
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
     /** The preferred connected output device (wired/USB first) that is safe for pass-through, if any. */
-    fun findSafeOutputDevice(): AudioDeviceInfo? {
-        val safeDevices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+    fun findSafeOutputDevice(): AudioDeviceInfo? =
+        audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
             .filter { LoopbackSafety.isSafeType(it.type) }
-        return safeDevices.firstOrNull { LoopbackSafety.isPreferredType(it.type) }
-            ?: safeDevices.firstOrNull()
-    }
+            .minByOrNull { LoopbackSafety.devicePriority(it.type) ?: Int.MAX_VALUE }
+
+    /** The phone's own microphone, if the platform lists it. */
+    fun findBuiltInMic(): AudioDeviceInfo? =
+        audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+            .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
 
     override fun findOutputDevice(id: Int): AudioDeviceInfo? =
         audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.id == id }
@@ -43,19 +46,17 @@ class AudioDeviceMonitor(context: Context) : OutputDevices {
     override val safeOutputDeviceIdFlow: Flow<Int?> = callbackFlow {
         val callback = object : AudioDeviceCallback() {
             override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
-                trySend(findSafeOutputDevice()?.id)
+                trySend(currentSafeOutputDeviceId())
             }
 
             override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
-                trySend(findSafeOutputDevice()?.id)
+                trySend(currentSafeOutputDeviceId())
             }
         }
 
         audioManager.registerAudioDeviceCallback(callback, null)
-        awaitClose {
-            audioManager.unregisterAudioDeviceCallback(callback)
-        }
-    }.onStart { emit(findSafeOutputDevice()?.id) }
+        awaitClose { audioManager.unregisterAudioDeviceCallback(callback) }
+    }.onStart { emit(currentSafeOutputDeviceId()) }
         .distinctUntilChanged()
 
     val loopbackSafeStatusFlow: Flow<Boolean> = safeOutputDeviceIdFlow

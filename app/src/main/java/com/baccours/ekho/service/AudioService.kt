@@ -6,16 +6,19 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.baccours.ekho.EkhoApplication
 import com.baccours.ekho.MainActivity
 import com.baccours.ekho.R
 import com.baccours.ekho.audio.AudioProcessor
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,7 +28,13 @@ import timber.log.Timber
 
 /** Thin Android host: owns the foreground notification and runs a [StreamingController]. */
 class AudioService : Service() {
-    private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    // An unexpected failure stops the service instead of crashing the app or idling silently.
+    private val serviceScope = CoroutineScope(
+        Dispatchers.Default + SupervisorJob() + CoroutineExceptionHandler { _, e ->
+            Timber.e(e, "Streaming controller failed")
+            stopSelf()
+        }
+    )
 
     private lateinit var audioProcessor: AudioProcessor
     private lateinit var serviceState: ServiceState
@@ -33,10 +42,22 @@ class AudioService : Service() {
 
     private var isObserving = false
 
+    // Serializes status callbacks (coroutine threads) with onDestroy, so nothing is posted after teardown.
+    private val statusLock = Any()
+    private var destroyed = false // guarded by statusLock
+
     companion object {
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "EkhoChannel"
-        const val ACTION_STOP = "STOP"
+        private const val ACTION_STOP = "STOP"
+
+        fun start(context: Context) {
+            ContextCompat.startForegroundService(context, Intent(context, AudioService::class.java))
+        }
+
+        fun stop(context: Context) {
+            context.stopService(Intent(context, AudioService::class.java))
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -48,7 +69,10 @@ class AudioService : Service() {
 
         val container = (application as EkhoApplication).container
         serviceState = container.serviceState
-        audioProcessor = AudioProcessor(AudioProcessor.nativeSampleRate(this))
+        audioProcessor = AudioProcessor(
+            preferredSampleRate = AudioProcessor.nativeSampleRate(this),
+            inputDevice = container.audioDeviceMonitor::findBuiltInMic
+        )
         controller = StreamingController(
             engine = audioProcessor,
             devices = container.audioDeviceMonitor,
@@ -93,6 +117,7 @@ class AudioService : Service() {
 
     override fun onDestroy() {
         Timber.d("AudioService destroying")
+        synchronized(statusLock) { destroyed = true }
         serviceScope.cancel()   // cancels the controller and with it the streaming loop
         audioProcessor.close()  // Hardware safety: stop the processor and free the audio thread
         serviceState.reset()
@@ -124,11 +149,14 @@ class AudioService : Service() {
     }
 
     private fun onStatusChanged(status: StreamingStatus) {
-        serviceState.setStreamingState(
-            isStreaming = status == StreamingStatus.Streaming,
-            hasError = status == StreamingStatus.Error
-        )
-        updateNotification(status)
+        synchronized(statusLock) {
+            if (destroyed) return
+            serviceState.setStreamingState(
+                isStreaming = status == StreamingStatus.Streaming,
+                hasError = status == StreamingStatus.Error
+            )
+            updateNotification(status)
+        }
     }
 
     // -------------------------------------------------------------------------
