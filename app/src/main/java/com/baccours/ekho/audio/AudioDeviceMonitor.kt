@@ -25,11 +25,13 @@ interface OutputDevices {
 class AudioDeviceMonitor(context: Context) : OutputDevices {
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
-    /** The most preferred connected output device that is safe for pass-through, if any. */
-    fun findSafeOutputDevice(): AudioDeviceInfo? =
-        audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+    /** The preferred connected output device (wired/USB first) that is safe for pass-through, if any. */
+    fun findSafeOutputDevice(): AudioDeviceInfo? {
+        val safeDevices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
             .filter { LoopbackSafety.isSafeType(it.type) }
-            .minByOrNull { LoopbackSafety.priority(it.type) ?: Int.MAX_VALUE }
+        return safeDevices.firstOrNull { LoopbackSafety.isPreferredType(it.type) }
+            ?: safeDevices.firstOrNull()
+    }
 
     override fun findOutputDevice(id: Int): AudioDeviceInfo? =
         audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.id == id }

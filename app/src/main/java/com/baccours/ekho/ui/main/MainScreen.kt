@@ -176,7 +176,7 @@ fun MainContent(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             AnimatedVisibility(
-                visible = !uiState.isLoopbackSafe,
+                visible = !uiState.isLoopbackSafe || uiState.bypassLoopbackProtection,
                 enter = expandVertically(),
                 exit = shrinkVertically()
             ) {
@@ -247,7 +247,10 @@ fun SafetyStatusCard(
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             Text(
-                text = stringResource(R.string.safety_title),
+                text = stringResource(
+                    if (bypassLoopbackProtection) R.string.safety_title_bypassed
+                    else R.string.safety_title
+                ),
                 style = MaterialTheme.typography.titleMedium,
                 color = contentColor
             )

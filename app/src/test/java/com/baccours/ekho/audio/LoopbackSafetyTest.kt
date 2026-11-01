@@ -17,17 +17,23 @@ class LoopbackSafetyTest {
     }
 
     @Test
-    fun loudspeakersAreNeverSafe() {
+    fun theDevicesOwnSpeakerAndEarpieceAreNeverSafe() {
         assertFalse(LoopbackSafety.isSafeType(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER))
         assertFalse(LoopbackSafety.isSafeType(AudioDeviceInfo.TYPE_BUILTIN_EARPIECE))
-        assertFalse(LoopbackSafety.isSafeType(AudioDeviceInfo.TYPE_BLE_SPEAKER))
     }
 
     @Test
-    fun wiredOutputsArePreferredOverBluetooth() {
-        val wired = LoopbackSafety.priority(AudioDeviceInfo.TYPE_WIRED_HEADPHONES)!!
-        val bluetooth = LoopbackSafety.priority(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP)!!
-        assertTrue(wired < bluetooth)
+    fun externalBleSpeakerIsSafeForBabyMonitorUse() {
+        assertTrue(LoopbackSafety.isSafeType(AudioDeviceInfo.TYPE_BLE_SPEAKER))
+        assertEquals(RouteState.Safe, LoopbackSafety.classify(AudioDeviceInfo.TYPE_BLE_SPEAKER))
+    }
+
+    @Test
+    fun wiredAndUsbOutputsArePreferredOverWireless() {
+        assertTrue(LoopbackSafety.isPreferredType(AudioDeviceInfo.TYPE_WIRED_HEADPHONES))
+        assertTrue(LoopbackSafety.isPreferredType(AudioDeviceInfo.TYPE_USB_HEADSET))
+        assertFalse(LoopbackSafety.isPreferredType(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP))
+        assertFalse(LoopbackSafety.isPreferredType(AudioDeviceInfo.TYPE_BLE_SPEAKER))
     }
 
     @Test

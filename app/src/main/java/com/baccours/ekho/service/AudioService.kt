@@ -52,7 +52,7 @@ class AudioService : Service() {
         controller = StreamingController(
             engine = audioProcessor,
             devices = container.audioDeviceMonitor,
-            bypassProtection = serviceState.bypassLoopbackProtection,
+            bypassProtection = container.settingsRepository.bypassLoopbackProtectionFlow,
             bandLevels = container.settingsRepository.bandLevelsFlow,
             onStatusChanged = ::onStatusChanged
         )

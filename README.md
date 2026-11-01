@@ -38,7 +38,7 @@ Ekho is built following modern Android Development standards:
 - **Layered Architecture**: UI (Compose + ViewModel), a `StreamingController` that owns the streaming policy (testable without Android), the audio engine, and Data repositories, wired through a small manual `AppContainer`.
 - **Single Source of Truth**: `SettingsRepository` manages the global state of equalizer bands and app preferences, synchronized across the Service and UI.
 - **Material 3 Expressive**: Adherence to the latest design guidelines, featuring dynamic layout transitions and accessible component styling.
-- **Safety First Logic**: Built-in protections against feedback loops by requiring headphone connection by default. Output is pinned to the detected headphone device, stays muted until the actual audio route is confirmed safe, and is cut if it is ever routed elsewhere (for example to the speaker after an unplug). The speaker bypass only lasts for the current session.
+- **Safety First Logic**: Built-in protections against feedback loops by requiring headphone connection by default. Output is pinned to the detected headphone device, stays muted until the actual audio route is confirmed safe, and is cut if it is ever routed elsewhere (for example to the speaker after an unplug). The speaker bypass is remembered, but while it is on a warning card stays visible even when headphones are connected, and the setting is never included in backups. External speakers such as a Bluetooth LE speaker count as safe outputs (baby-monitor use); only the phone's own speaker and earpiece do not.
 
 ---
 

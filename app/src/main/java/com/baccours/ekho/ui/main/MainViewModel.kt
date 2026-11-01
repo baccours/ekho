@@ -33,7 +33,7 @@ data class MainUiState(
 class MainViewModel(
     private val repository: SettingsRepository,
     audioDeviceMonitor: AudioDeviceMonitor,
-    private val serviceState: ServiceState
+    serviceState: ServiceState
 ) : ViewModel() {
 
     companion object {
@@ -58,7 +58,7 @@ class MainViewModel(
     val uiState: StateFlow<MainUiState> = combine(
         repository.settingsFlow,
         pendingBandLevels,
-        serviceState.bypassLoopbackProtection,
+        repository.bypassLoopbackProtectionFlow,
         audioDeviceMonitor.loopbackSafeStatusFlow,
         serviceState.state
     ) { settings, pending, bypass, safe, service ->
@@ -76,7 +76,6 @@ class MainViewModel(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = MainUiState(
             isLoopbackSafe = audioDeviceMonitor.isLoopbackSafe(),
-            bypassLoopbackProtection = serviceState.bypassLoopbackProtection.value,
             isServiceRunning = serviceState.state.value.isRunning,
             isStreaming = serviceState.state.value.isStreaming,
             hasError = serviceState.state.value.hasError
@@ -114,6 +113,8 @@ class MainViewModel(
     }
 
     fun setBypassLoopbackProtection(bypass: Boolean) {
-        serviceState.setBypassLoopbackProtection(bypass)
+        viewModelScope.launch {
+            repository.saveBypassLoopbackProtection(bypass)
+        }
     }
 }

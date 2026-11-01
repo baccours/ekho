@@ -3,6 +3,7 @@ package com.baccours.ekho.data
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -14,6 +15,11 @@ import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
+// Kept in its own file so that backup rules can exclude it: the feedback-protection bypass must
+// never be restored onto another device. Keep in sync with res/xml/backup_rules.xml and
+// res/xml/data_extraction_rules.xml.
+private val Context.safetyDataStore: DataStore<Preferences> by preferencesDataStore(name = "safety")
+
 /** Persisted equalizer configuration. [bandLevels] are in millibels, one per band. */
 data class EqSettings(
     val preset: EqPreset,
@@ -24,6 +30,7 @@ class SettingsRepository(private val context: Context) {
 
     companion object {
         val PRESET_KEY = stringPreferencesKey("equalizer_preset")
+        private val BYPASS_LOOPBACK_PROTECTION_KEY = booleanPreferencesKey("bypass_loopback_protection")
         private fun bandKey(band: Int) = intPreferencesKey("band_$band")
     }
 
@@ -43,6 +50,17 @@ class SettingsRepository(private val context: Context) {
     val bandLevelsFlow: Flow<List<Int>> = settingsFlow
         .map { it.bandLevels }
         .distinctUntilChanged()
+
+    /** Whether the user switched off feedback-loop protection. Protected (false) by default. */
+    val bypassLoopbackProtectionFlow: Flow<Boolean> = context.safetyDataStore.data
+        .map { preferences -> preferences[BYPASS_LOOPBACK_PROTECTION_KEY] ?: false }
+        .distinctUntilChanged()
+
+    suspend fun saveBypassLoopbackProtection(bypass: Boolean) {
+        context.safetyDataStore.edit { preferences ->
+            preferences[BYPASS_LOOPBACK_PROTECTION_KEY] = bypass
+        }
+    }
 
     suspend fun savePreset(preset: EqPreset) {
         context.dataStore.edit { preferences ->

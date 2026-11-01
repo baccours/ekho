@@ -17,11 +17,6 @@ class ServiceState {
     private val _state = MutableStateFlow(ServiceUiState())
     val state: StateFlow<ServiceUiState> = _state.asStateFlow()
 
-    // Deliberately in-memory only: the safety bypass must not survive the session, a restart,
-    // or a backup restore.
-    private val _bypassLoopbackProtection = MutableStateFlow(false)
-    val bypassLoopbackProtection: StateFlow<Boolean> = _bypassLoopbackProtection.asStateFlow()
-
     fun setRunning(running: Boolean) {
         _state.update { it.copy(isRunning = running) }
     }
@@ -30,12 +25,7 @@ class ServiceState {
         _state.update { it.copy(isStreaming = isStreaming, hasError = hasError) }
     }
 
-    fun setBypassLoopbackProtection(bypass: Boolean) {
-        _bypassLoopbackProtection.value = bypass
-    }
-
     fun reset() {
         _state.value = ServiceUiState()
-        _bypassLoopbackProtection.value = false
     }
 }

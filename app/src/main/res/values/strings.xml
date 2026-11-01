@@ -10,6 +10,7 @@
     <string name="permission_open_settings">Open settings</string>
 
     <string name="safety_title">Feedback Loop Risk</string>
+    <string name="safety_title_bypassed">Feedback protection is off</string>
     <string name="safety_hint_protected">Slide right to bypass safety</string>
     <string name="safety_hint_bypassed">Slide left to re-enable safety</string>
 

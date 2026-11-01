@@ -6,39 +6,36 @@ import android.media.AudioDeviceInfo
 enum class RouteState { Safe, Unsafe, Unknown }
 
 /**
- * Decides which output device types are considered safe for microphone pass-through, i.e. unlikely
- * to be a loudspeaker that could feed back into the microphone.
+ * Decides which output device types are safe for microphone pass-through.
+ *
+ * "Safe" means an output that is not the phone's own speaker or earpiece, which sit right next to
+ * its microphone. External speakers (e.g. a Bluetooth LE speaker in another room, as used for a
+ * baby monitor) are allowed on purpose. Android cannot tell a Bluetooth headset from a Bluetooth
+ * speaker, so Bluetooth outputs are accepted as a whole.
  */
 object LoopbackSafety {
 
-    /**
-     * Lower values are preferred; `null` means the device type is not safe.
-     * Note: Android does not tell a Bluetooth headset from a Bluetooth speaker, so A2DP is
-     * accepted as the best effort.
-     */
-    fun priority(deviceType: Int): Int? = when (deviceType) {
+    /** True for wired/USB outputs, which win over the other safe types when both are present. */
+    fun isPreferredType(deviceType: Int): Boolean = when (deviceType) {
         AudioDeviceInfo.TYPE_WIRED_HEADSET,
-        AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> 0
-
-        AudioDeviceInfo.TYPE_USB_HEADSET -> 1
-
+        AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+        AudioDeviceInfo.TYPE_USB_HEADSET,
         AudioDeviceInfo.TYPE_USB_DEVICE,
         AudioDeviceInfo.TYPE_USB_ACCESSORY,
-        AudioDeviceInfo.TYPE_LINE_DIGITAL,
-        AudioDeviceInfo.TYPE_LINE_ANALOG -> 2
-
-        AudioDeviceInfo.TYPE_HEARING_AID,
-        AudioDeviceInfo.TYPE_BLE_HEADSET -> 3
-
-        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> 4
-        AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> 5
-        AudioDeviceInfo.TYPE_BLE_BROADCAST -> 6
-
-        // Deliberately excluded: TYPE_BLE_SPEAKER and TYPE_BUILTIN_SPEAKER are loudspeakers.
-        else -> null
+        AudioDeviceInfo.TYPE_LINE_ANALOG,
+        AudioDeviceInfo.TYPE_LINE_DIGITAL -> true
+        else -> false
     }
 
-    fun isSafeType(deviceType: Int): Boolean = priority(deviceType) != null
+    fun isSafeType(deviceType: Int): Boolean = isPreferredType(deviceType) || when (deviceType) {
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+        AudioDeviceInfo.TYPE_BLE_HEADSET,
+        AudioDeviceInfo.TYPE_BLE_SPEAKER,
+        AudioDeviceInfo.TYPE_BLE_BROADCAST,
+        AudioDeviceInfo.TYPE_HEARING_AID -> true
+        else -> false
+    }
 
     /** Classifies the device a stream is routed to; null means the route is not known (yet). */
     fun classify(routedDeviceType: Int?): RouteState = when {
