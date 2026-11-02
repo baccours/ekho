@@ -1,0 +1,230 @@
+package com.baccours.ekho.ui.main
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.dp
+import com.baccours.ekho.R
+import com.baccours.ekho.audio.EqualizerBands
+import com.baccours.ekho.data.EqPreset
+import com.baccours.ekho.ui.icons.ArrowDown
+import com.baccours.ekho.ui.icons.ArrowUp
+import com.baccours.ekho.ui.icons.Icons
+import kotlin.math.roundToInt
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EqualizerSection(
+    preset: EqPreset,
+    bandLevels: List<Int>,
+    onPresetChange: (EqPreset) -> Unit,
+    onBandLevelChange: (Int, Int) -> Unit
+) {
+    var isEditing by rememberSaveable { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { isEditing = !isEditing }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = stringResource(R.string.equalizer_title),
+            style = MaterialTheme.typography.headlineSmall,
+        )
+        Icon(
+            imageVector = if (isEditing) Icons.ArrowUp
+            else Icons.ArrowDown,
+            contentDescription = stringResource(
+                if (isEditing) R.string.collapse else R.string.expand
+            )
+        )
+    }
+
+    AnimatedVisibility(
+        visible = isEditing,
+        enter = expandVertically() + fadeIn(),
+        exit = shrinkVertically() + fadeOut()
+    ) {
+        Column {
+            Spacer(modifier = Modifier.height(8.dp))
+
+            var expanded by remember { mutableStateOf(false) }
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = stringResource(preset.labelRes()),
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text(stringResource(R.string.preset_label)) },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    modifier = Modifier
+                        .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                        .fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    EqPreset.selectable.forEach { selection ->
+                        DropdownMenuItem(
+                            text = { Text(stringResource(selection.labelRes())) },
+                            onClick = {
+                                onPresetChange(selection)
+                                expanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            ) {
+                bandLevels.forEachIndexed { bandId, level ->
+                    VerticalBandSlider(
+                        level = level,
+                        frequency = EqualizerBands.FREQUENCIES_HZ[bandId],
+                        onLevelChange = { newLevel ->
+                            onBandLevelChange(bandId, newLevel)
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun VerticalBandSlider(
+    level: Int,
+    frequency: Int,
+    onLevelChange: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val freqText = if (frequency >= 1000) {
+        stringResource(R.string.band_freq_khz, frequency / 1000)
+    } else {
+        stringResource(R.string.band_freq_hz, frequency)
+    }
+    val levelText = stringResource(R.string.band_level_format, (level / 100f).roundToInt())
+    val bandDescription = stringResource(R.string.band_description, freqText)
+
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = levelText,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Vertical Slider using rotation
+        Slider(
+            value = level.toFloat(),
+            onValueChange = { onLevelChange(snapToDecibel(it)) },
+            valueRange = LEVEL_RANGE,
+            modifier = Modifier
+                .height(200.dp)
+                .graphicsLayer {
+                    rotationZ = 270f
+                    transformOrigin = TransformOrigin(0f, 0f)
+                }
+                .layout { measurable, constraints ->
+                    val placeable = measurable.measure(
+                        Constraints(
+                            minWidth = constraints.minHeight,
+                            maxWidth = constraints.maxHeight,
+                            minHeight = constraints.minWidth,
+                            maxHeight = constraints.maxWidth
+                        )
+                    )
+                    layout(placeable.height, placeable.width) {
+                        placeable.place(-placeable.width, 0)
+                    }
+                }
+                .semantics {
+                    contentDescription = bandDescription
+                    stateDescription = levelText
+                },
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = freqText,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+private val LEVEL_RANGE =
+    EqualizerBands.MIN_LEVEL_MB.toFloat()..EqualizerBands.MAX_LEVEL_MB.toFloat()
+
+/** Slider positions are snapped to whole decibels (levels are stored in millibels). */
+private fun snapToDecibel(value: Float): Int = (value / 100f).roundToInt() * 100
+
+private fun EqPreset.labelRes(): Int = when (this) {
+    EqPreset.FLAT -> R.string.preset_flat
+    EqPreset.VOICE -> R.string.preset_voice
+    EqPreset.BOOST -> R.string.preset_boost
+    EqPreset.CUSTOM -> R.string.preset_custom
+}

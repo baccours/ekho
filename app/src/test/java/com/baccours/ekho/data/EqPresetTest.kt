@@ -9,24 +9,21 @@ class EqPresetTest {
 
     @Test
     fun flatAndCustomApplyNoGain() {
-        EqualizerBands.FREQUENCIES_HZ.forEach { frequency ->
-            assertEquals(0, EqPreset.FLAT.levelFor(frequency))
-            assertEquals(0, EqPreset.CUSTOM.levelFor(frequency))
-        }
+        assertEquals(List(EqualizerBands.COUNT) { 0 }, EqPreset.FLAT.defaultBandLevels)
+        assertEquals(List(EqualizerBands.COUNT) { 0 }, EqPreset.CUSTOM.defaultBandLevels)
     }
 
     @Test
     fun voicePresetEmphasisesTheSpeechBand() {
-        assertEquals(-200, EqPreset.VOICE.levelFor(60))
-        assertEquals(800, EqPreset.VOICE.levelFor(3600))
+        assertEquals(-200, EqPreset.VOICE.defaultBandLevels[0]) // 60 Hz
+        assertEquals(800, EqPreset.VOICE.defaultBandLevels[3]) // 3.6 kHz
     }
 
     @Test
     fun presetLevelsStayWithinBandLimits() {
         EqPreset.entries.forEach { preset ->
-            EqualizerBands.FREQUENCIES_HZ.forEach { frequency ->
-                assertTrue(preset.levelFor(frequency) in EqualizerBands.MIN_LEVEL_MB..EqualizerBands.MAX_LEVEL_MB)
-            }
+            assertEquals(EqualizerBands.COUNT, preset.defaultBandLevels.size)
+            assertTrue(preset.defaultBandLevels.all { it in EqualizerBands.MIN_LEVEL_MB..EqualizerBands.MAX_LEVEL_MB })
         }
     }
 

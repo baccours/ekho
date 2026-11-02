@@ -11,8 +11,15 @@ interface AudioEngine {
      * With [requireSafeRoute] the output stays muted until the stream is confirmed to be routed to
      * a safe device, and the stream ends with [StreamResult.RouteUnsafe] if it is ever routed
      * elsewhere (e.g. the loudspeaker after an unplug).
+     *
+     * [onStreaming] is called once per call, from the audio thread, when audio becomes audible
+     * (after route confirmation if [requireSafeRoute]). Keep it cheap.
      */
-    suspend fun start(preferredOutput: AudioDeviceInfo?, requireSafeRoute: Boolean): StreamResult
+    suspend fun start(
+        preferredOutput: AudioDeviceInfo?,
+        requireSafeRoute: Boolean,
+        onStreaming: () -> Unit
+    ): StreamResult
 
     /** Silences the output immediately and unblocks the audio loop. Safe from any thread. */
     fun stop()

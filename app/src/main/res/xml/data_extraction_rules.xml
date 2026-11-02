@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-   Backup and device-transfer rules for API 31+. The feedback-protection bypass lives in its own
-   DataStore file so it is never restored onto another device.
+   Backup and device-transfer rules for API 31+.
+   All backups and device transfers are disabled.
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <exclude domain="file" path="datastore/safety.preferences_pb" />
+        <exclude domain="root" />
     </cloud-backup>
     <device-transfer>
-        <exclude domain="file" path="datastore/safety.preferences_pb" />
+        <exclude domain="root" />
     </device-transfer>
 </data-extraction-rules>

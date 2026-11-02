@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class MainUiState(
+    val isLoaded: Boolean = false, // False only for the placeholder shown before DataStore has been read.
     val preset: EqPreset = EqPreset.FLAT,
     val bandLevels: List<Int> = List(EqualizerBands.COUNT) { 0 },
     val bypassLoopbackProtection: Boolean = false,
@@ -58,14 +59,14 @@ class MainViewModel(
     val uiState: StateFlow<MainUiState> = combine(
         repository.settingsFlow,
         pendingBandLevels,
-        repository.bypassLoopbackProtectionFlow,
         audioDeviceMonitor.loopbackSafeStatusFlow,
         serviceState.state
-    ) { settings, pending, bypass, safe, service ->
+    ) { settings, pending, safe, service ->
         MainUiState(
+            isLoaded = true,
             preset = settings.preset,
             bandLevels = settings.bandLevels.mapIndexed { band, level -> pending[band] ?: level },
-            bypassLoopbackProtection = bypass,
+            bypassLoopbackProtection = settings.bypassLoopbackProtection,
             isLoopbackSafe = safe,
             isServiceRunning = service.isRunning,
             isStreaming = service.isStreaming,
@@ -81,10 +82,6 @@ class MainViewModel(
             hasError = serviceState.state.value.hasError
         )
     )
-
-    val bandFrequencies: List<Int> = EqualizerBands.FREQUENCIES_HZ
-    val bandLevelRange: ClosedFloatingPointRange<Float> =
-        EqualizerBands.MIN_LEVEL_MB.toFloat()..EqualizerBands.MAX_LEVEL_MB.toFloat()
 
     init {
         // A StateFlow collector that is busy saving only sees the latest map afterward, which is

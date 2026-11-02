@@ -55,7 +55,7 @@ class AudioProcessor(
         private const val CHANNEL_OUT = AudioFormat.CHANNEL_OUT_MONO
         // Backup poll for the routing callback: fast until the route is confirmed, then slow.
         private const val ROUTE_POLL_FAST_MILLIS = 50L
-        private const val ROUTE_POLL_SLOW_MILLIS = 250L
+        private const val ROUTE_POLL_SLOW_MILLIS = 1_000L
 
         /** The device's native output rate; using it avoids resampling and keeps the fast path. */
         fun nativeSampleRate(context: Context): Int {
@@ -82,6 +82,7 @@ class AudioProcessor(
     private val routeGuard = RouteGuard() // guarded by routeLock
     @Volatile private var routingListener: AudioRouting.OnRoutingChangedListener? = null
     @Volatile private var routeViolated = false
+    @Volatile private var audible = false // output unmuted; set by runSession/unmute
     private var lastLoggedRouteType: Int? = null // guarded by routeLock
 
     // Blocking reads must not occupy a shared pool thread; the audio thread also gets audio priority.
@@ -92,9 +93,14 @@ class AudioProcessor(
         }, "ekho-audio")
     }.asCoroutineDispatcher()
 
-    override suspend fun start(preferredOutput: AudioDeviceInfo?, requireSafeRoute: Boolean): StreamResult {
+    override suspend fun start(
+        preferredOutput: AudioDeviceInfo?,
+        requireSafeRoute: Boolean,
+        onStreaming: () -> Unit
+    ): StreamResult {
         if (!isProcessing.compareAndSet(false, true)) return StreamResult.Stopped
         routeViolated = false
+        audible = false
         synchronized(routeLock) {
             routeGuard.reset(SystemClock.elapsedRealtime())
             lastLoggedRouteType = null
@@ -126,7 +132,7 @@ class AudioProcessor(
                     null
                 }
                 try {
-                    withContext(audioDispatcher) { runSession(preferredOutput, requireSafeRoute) }
+                    withContext(audioDispatcher) { runSession(preferredOutput, requireSafeRoute, onStreaming) }
                 } finally {
                     routeMonitor?.cancel()
                     watchdog.cancel()
@@ -173,7 +179,11 @@ class AudioProcessor(
     // -------------------------------------------------------------------------
     // Audio thread
     // -------------------------------------------------------------------------
-    private fun runSession(preferredOutput: AudioDeviceInfo?, requireSafeRoute: Boolean): StreamResult {
+    private fun runSession(
+        preferredOutput: AudioDeviceInfo?,
+        requireSafeRoute: Boolean,
+        onStreaming: () -> Unit
+    ): StreamResult {
         val (record, sampleRate) = openRecord() ?: run {
             Timber.e("AudioRecord failed to initialize")
             return StreamResult.Failed
@@ -203,12 +213,15 @@ class AudioProcessor(
             val listener = AudioRouting.OnRoutingChangedListener { evaluateRoute() }
             routingListener = listener
             track.addOnRoutingChangedListener(listener, null)
+        } else {
+            audible = true
         }
 
         record.startRecording()
         track.play()
 
         var result = StreamResult.Stopped
+        var announced = false
         val buffer = ShortArray(chunkSamples)
         while (isProcessing.get()) {
             val read = record.read(buffer, 0, buffer.size)
@@ -221,6 +234,10 @@ class AudioProcessor(
                         result = StreamResult.Failed
                     }
                     break
+                }
+                if (!announced && audible) {
+                    announced = true
+                    onStreaming()
                 }
             } else if (read < 0) {
                 if (isProcessing.get()) {
@@ -274,6 +291,7 @@ class AudioProcessor(
         if (!routeViolated && isProcessing.get()) {
             try {
                 track.setVolume(1f)
+                audible = true
             } catch (e: Exception) {
                 Timber.e(e, "Error unmuting AudioTrack")
             }

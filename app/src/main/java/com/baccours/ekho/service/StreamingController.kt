@@ -94,10 +94,15 @@ class StreamingController(
         try {
             while (true) {
                 if (target.allowed) {
-                    report(StreamingStatus.Streaming)
                     val output = target.outputDeviceId?.let { devices.findOutputDevice(it) }
                     val startedAt = TimeSource.Monotonic.markNow()
-                    when (engine.start(output, target.requireSafeRoute)) {
+                    // Streaming is reported by the engine once audible, so failed starts never flash it.
+                    val result = engine.start(
+                        output,
+                        target.requireSafeRoute,
+                        onStreaming = { report(StreamingStatus.Streaming) }
+                    )
+                    when (result) {
                         StreamResult.Stopped -> {
                             report(StreamingStatus.Waiting)
                             break

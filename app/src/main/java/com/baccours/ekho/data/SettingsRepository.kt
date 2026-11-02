@@ -12,8 +12,10 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.baccours.ekho.audio.EqualizerBands
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import java.io.IOException
 
 // A corrupt file is replaced by defaults (flat EQ, protection on) instead of crashing.
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
@@ -21,37 +23,36 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
     corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
 )
 
-// Kept in its own file so that backup rules can exclude it: the feedback-protection bypass must
-// never be restored onto another device. Keep in sync with res/xml/backup_rules.xml and
-// res/xml/data_extraction_rules.xml.
-private val Context.safetyDataStore: DataStore<Preferences> by preferencesDataStore(
-    name = "safety",
-    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
-)
+// Read failures fall back to defaults (flat EQ, protection on) instead of crashing collectors.
+private fun DataStore<Preferences>.safeData(): Flow<Preferences> = data.catch { e ->
+    if (e is IOException) emit(emptyPreferences()) else throw e
+}
 
-/** Persisted equalizer configuration. [bandLevels] are in millibels, one per band. */
-data class EqSettings(
-    val preset: EqPreset,
-    val bandLevels: List<Int>
+/** Persisted app configuration. [bandLevels] are in millibels, one per band. */
+data class AppSettings(
+    val preset: EqPreset = EqPreset.FLAT,
+    val bandLevels: List<Int> = List(EqualizerBands.COUNT) { 0 },
+    val bypassLoopbackProtection: Boolean = false
 )
 
 class SettingsRepository(private val context: Context) {
 
     companion object {
-        val PRESET_KEY = stringPreferencesKey("equalizer_preset")
+        private val PRESET_KEY = stringPreferencesKey("equalizer_preset")
         private val BYPASS_LOOPBACK_PROTECTION_KEY = booleanPreferencesKey("bypass_loopback_protection")
         private fun bandKey(band: Int) = intPreferencesKey("band_$band")
     }
 
-    /** Preset and band levels from one DataStore subscription. */
-    val settingsFlow: Flow<EqSettings> = context.dataStore.data
+    /** Preset, band levels, and safety settings from one DataStore subscription. */
+    val settingsFlow: Flow<AppSettings> = context.dataStore.safeData()
         .map { preferences ->
-            EqSettings(
+            AppSettings(
                 preset = EqPreset.fromId(preferences[PRESET_KEY]),
                 bandLevels = List(EqualizerBands.COUNT) { band ->
                     (preferences[bandKey(band)] ?: 0)
                         .coerceIn(EqualizerBands.MIN_LEVEL_MB, EqualizerBands.MAX_LEVEL_MB)
-                }
+                },
+                bypassLoopbackProtection = preferences[BYPASS_LOOPBACK_PROTECTION_KEY] ?: false
             )
         }
         .distinctUntilChanged()
@@ -61,12 +62,12 @@ class SettingsRepository(private val context: Context) {
         .distinctUntilChanged()
 
     /** Whether the user switched off feedback-loop protection. Protected (false) by default. */
-    val bypassLoopbackProtectionFlow: Flow<Boolean> = context.safetyDataStore.data
-        .map { preferences -> preferences[BYPASS_LOOPBACK_PROTECTION_KEY] ?: false }
+    val bypassLoopbackProtectionFlow: Flow<Boolean> = settingsFlow
+        .map { it.bypassLoopbackProtection }
         .distinctUntilChanged()
 
     suspend fun saveBypassLoopbackProtection(bypass: Boolean) {
-        context.safetyDataStore.edit { preferences ->
+        context.dataStore.edit { preferences ->
             preferences[BYPASS_LOOPBACK_PROTECTION_KEY] = bypass
         }
     }

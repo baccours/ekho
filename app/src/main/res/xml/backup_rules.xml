@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
    Auto Backup rules for API 30 and below (see data_extraction_rules.xml for API 31+).
-   The feedback-protection bypass lives in its own DataStore file so it is never restored onto
-   another device; everything else (equalizer settings) is backed up.
 -->
 <full-backup-content>
-    <exclude domain="file" path="datastore/safety.preferences_pb" />
+    <exclude domain="root" />
 </full-backup-content>

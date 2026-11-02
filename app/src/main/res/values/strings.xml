@@ -3,7 +3,7 @@
 
     <string name="service_start">START</string>
     <string name="service_stop">STOP</string>
-    <string name="service_waiting">WAITING FOR HEADPHONES</string>
+    <string name="service_waiting">STANDBY · SAFE</string>
     <string name="service_error">AUDIO ERROR · RETRYING</string>
 
     <string name="permission_mic_required">Microphone permission is required to start.</string>
@@ -31,13 +31,12 @@
     <string name="band_level_format">%+d dB</string>
     <string name="band_freq_hz">%d Hz</string>
     <string name="band_freq_khz">%d kHz</string>
-    <string name="band_fallback">B%d</string>
 
     <string name="notification_channel_name">Ekho Audio Service</string>
     <string name="notification_title_active">Ekho is active</string>
     <string name="notification_text_active">Microphone pass-through is running</string>
     <string name="notification_title_standby">Ekho is in standby</string>
-    <string name="notification_text_standby">Waiting for headphones</string>
+    <string name="notification_text_standby">Connect headphones to start</string>
     <string name="notification_title_error">Ekho can\'t access audio</string>
     <string name="notification_text_error">Retrying…</string>
     <string name="notification_action_stop">Stop</string>

@@ -1,0 +1,4 @@
+<resources>
+    <!-- Light system theme (API 29+): match the Compose light surface to avoid a dark launch flash. -->
+    <color name="window_background">#FFFBFBFB</color>
+</resources>

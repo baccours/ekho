@@ -35,11 +35,17 @@ class StreamingControllerTest {
         var lastRequireSafeRoute: Boolean? = null
         val levels = mutableListOf<List<Int>>()
 
-        // Returns the next scripted result, then streams until canceled.
-        override suspend fun start(preferredOutput: AudioDeviceInfo?, requireSafeRoute: Boolean): StreamResult {
+        // Returns the next scripted result, then streams (audibly) until canceled.
+        override suspend fun start(
+            preferredOutput: AudioDeviceInfo?,
+            requireSafeRoute: Boolean,
+            onStreaming: () -> Unit
+        ): StreamResult {
             lastRequireSafeRoute = requireSafeRoute
             starts++
-            return script.removeFirstOrNull() ?: awaitCancellation()
+            script.removeFirstOrNull()?.let { return it }
+            onStreaming()
+            awaitCancellation()
         }
 
         override fun stop() {
@@ -164,15 +170,23 @@ class StreamingControllerTest {
     fun failuresAreSurfacedAndRetried() = runTest {
         val engine = FakeEngine(StreamResult.Failed)
         val statuses = launchController(engine, FakeDevices(7))
-        assertEquals(listOf(StreamingStatus.Streaming, StreamingStatus.Error), statuses)
+        assertEquals(listOf(StreamingStatus.Error), statuses)
 
         advance(RETRY_MS)
 
-        assertEquals(
-            listOf(StreamingStatus.Streaming, StreamingStatus.Error, StreamingStatus.Streaming),
-            statuses
-        )
+        assertEquals(listOf(StreamingStatus.Error, StreamingStatus.Streaming), statuses)
         assertEquals(2, engine.starts)
+    }
+
+    @Test
+    fun persistentFailuresDoNotFlapTheStatus() = runTest {
+        val engine = FakeEngine(StreamResult.Failed, StreamResult.Failed, StreamResult.Failed)
+        val statuses = launchController(engine, FakeDevices(7))
+
+        advance(2 * RETRY_MS)
+
+        assertEquals(3, engine.starts)
+        assertEquals(listOf(StreamingStatus.Error), statuses)
     }
 
     @Test
@@ -208,14 +222,11 @@ class StreamingControllerTest {
     fun unsafeRouteIsCutAndRetried() = runTest {
         val engine = FakeEngine(StreamResult.RouteUnsafe)
         val statuses = launchController(engine, FakeDevices(7))
-        assertEquals(listOf(StreamingStatus.Streaming, StreamingStatus.Error), statuses)
+        assertEquals(listOf(StreamingStatus.Error), statuses)
 
         advance(RETRY_MS)
 
-        assertEquals(
-            listOf(StreamingStatus.Streaming, StreamingStatus.Error, StreamingStatus.Streaming),
-            statuses
-        )
+        assertEquals(listOf(StreamingStatus.Error, StreamingStatus.Streaming), statuses)
         assertEquals(2, engine.starts)
     }
 
@@ -241,10 +252,7 @@ class StreamingControllerTest {
 
         advance(RETRY_MS)
 
-        assertEquals(
-            listOf(StreamingStatus.Streaming, StreamingStatus.Error, StreamingStatus.Waiting),
-            statuses
-        )
+        assertEquals(listOf(StreamingStatus.Error, StreamingStatus.Waiting), statuses)
         advance(100)
         assertEquals(1, engine.starts)
     }

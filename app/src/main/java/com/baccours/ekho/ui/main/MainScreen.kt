@@ -10,10 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,17 +26,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -47,38 +37,26 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.baccours.ekho.R
-import com.baccours.ekho.audio.EqualizerBands
 import com.baccours.ekho.data.EqPreset
 import com.baccours.ekho.service.AudioService
 import com.baccours.ekho.ui.components.SwipeToggle
-import com.baccours.ekho.ui.icons.ArrowDown
-import com.baccours.ekho.ui.icons.ArrowUp
 import com.baccours.ekho.ui.icons.Icons
 import com.baccours.ekho.ui.icons.Play
 import com.baccours.ekho.ui.icons.Stop
 import com.baccours.ekho.ui.theme.EkhoTheme
-import kotlin.math.roundToInt
 
 @Composable
 fun MainScreen(viewModel: MainViewModel = viewModel(factory = MainViewModel.Factory)) {
@@ -96,52 +74,57 @@ fun MainScreen(viewModel: MainViewModel = viewModel(factory = MainViewModel.Fact
         if (micGranted) AudioService.start(context)
     }
 
-    MainContent(
-        uiState = uiState,
-        bandFrequencies = viewModel.bandFrequencies,
-        bandLevelRange = viewModel.bandLevelRange,
-        micPermissionDenied = micPermissionDenied,
-        onToggleService = {
-            if (uiState.isServiceRunning) {
-                AudioService.stop(context)
-            } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
-                == PackageManager.PERMISSION_GRANTED
-            ) {
-                micPermissionDenied = false
-                AudioService.start(context)
-            } else {
-                val permissions = buildList {
-                    add(Manifest.permission.RECORD_AUDIO)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
-                        != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        add(Manifest.permission.POST_NOTIFICATIONS)
+    // Wait for the saved settings so the safety card doesn't pop in after launch.
+    if (uiState.isLoaded) {
+        MainContent(
+            uiState = uiState,
+            micPermissionDenied = micPermissionDenied,
+            onToggleService = {
+                if (uiState.isServiceRunning) {
+                    AudioService.stop(context)
+                } else if (ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.RECORD_AUDIO
+                    )
+                    == PackageManager.PERMISSION_GRANTED
+                ) {
+                    micPermissionDenied = false
+                    AudioService.start(context)
+                } else {
+                    val permissions = buildList {
+                        add(Manifest.permission.RECORD_AUDIO)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.POST_NOTIFICATIONS
+                            )
+                            != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            add(Manifest.permission.POST_NOTIFICATIONS)
+                        }
                     }
+                    launcher.launch(permissions.toTypedArray())
                 }
-                launcher.launch(permissions.toTypedArray())
-            }
-        },
-        onOpenAppSettings = {
-            context.startActivity(
-                Intent(
-                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.fromParts("package", context.packageName, null)
+            },
+            onOpenAppSettings = {
+                context.startActivity(
+                    Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", context.packageName, null)
+                    )
                 )
-            )
-        },
-        onToggleBypass = { viewModel.setBypassLoopbackProtection(it) },
-        onPresetChange = { viewModel.setPreset(it) },
-        onBandLevelChange = { bandId, level -> viewModel.updateBandLevel(bandId, level) }
-    )
+            },
+            onToggleBypass = { viewModel.setBypassLoopbackProtection(it) },
+            onPresetChange = { viewModel.setPreset(it) },
+            onBandLevelChange = { bandId, level -> viewModel.updateBandLevel(bandId, level) }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainContent(
     uiState: MainUiState,
-    bandFrequencies: List<Int>,
-    bandLevelRange: ClosedFloatingPointRange<Float>,
     micPermissionDenied: Boolean,
     onToggleService: () -> Unit,
     onOpenAppSettings: () -> Unit,
@@ -214,8 +197,6 @@ fun MainContent(
             EqualizerSection(
                 preset = uiState.preset,
                 bandLevels = uiState.bandLevels,
-                bandFrequencies = bandFrequencies,
-                bandLevelRange = bandLevelRange,
                 onPresetChange = onPresetChange,
                 onBandLevelChange = onBandLevelChange
             )
@@ -307,188 +288,6 @@ fun ServiceControlButton(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun EqualizerSection(
-    preset: EqPreset,
-    bandLevels: List<Int>,
-    bandFrequencies: List<Int>,
-    bandLevelRange: ClosedFloatingPointRange<Float>,
-    onPresetChange: (EqPreset) -> Unit,
-    onBandLevelChange: (Int, Int) -> Unit
-) {
-    var isEditing by rememberSaveable { mutableStateOf(false) }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { isEditing = !isEditing }
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(
-            text = stringResource(R.string.equalizer_title),
-            style = MaterialTheme.typography.headlineSmall,
-        )
-        Icon(
-            imageVector = if (isEditing) Icons.ArrowUp
-            else Icons.ArrowDown,
-            contentDescription = stringResource(
-                if (isEditing) R.string.collapse else R.string.expand
-            )
-        )
-    }
-
-    AnimatedVisibility(
-        visible = isEditing,
-        enter = expandVertically() + fadeIn(),
-        exit = shrinkVertically() + fadeOut()
-    ) {
-        Column {
-            Spacer(modifier = Modifier.height(8.dp))
-
-            var expanded by remember { mutableStateOf(false) }
-            ExposedDropdownMenuBox(
-                expanded = expanded,
-                onExpandedChange = { expanded = !expanded },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                OutlinedTextField(
-                    value = stringResource(preset.labelRes()),
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text(stringResource(R.string.preset_label)) },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                    modifier = Modifier
-                        .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                        .fillMaxWidth()
-                )
-                ExposedDropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
-                ) {
-                    EqPreset.selectable.forEach { selection ->
-                        DropdownMenuItem(
-                            text = { Text(stringResource(selection.labelRes())) },
-                            onClick = {
-                                onPresetChange(selection)
-                                expanded = false
-                            }
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-            ) {
-                bandLevels.forEachIndexed { bandId, level ->
-                    VerticalBandSlider(
-                        bandId = bandId,
-                        level = level,
-                        frequency = bandFrequencies.getOrNull(bandId),
-                        valueRange = bandLevelRange,
-                        onLevelChange = { newLevel ->
-                            onBandLevelChange(bandId, newLevel)
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun VerticalBandSlider(
-    bandId: Int,
-    level: Int,
-    frequency: Int?,
-    valueRange: ClosedFloatingPointRange<Float>,
-    onLevelChange: (Int) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val freqText = when {
-        frequency == null -> stringResource(R.string.band_fallback, bandId + 1)
-        frequency >= 1000 -> stringResource(R.string.band_freq_khz, frequency / 1000)
-        else -> stringResource(R.string.band_freq_hz, frequency)
-    }
-    val levelText = stringResource(R.string.band_level_format, (level / 100f).roundToInt())
-    val bandDescription = stringResource(R.string.band_description, freqText)
-
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = levelText,
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.primary
-        )
-        
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Vertical Slider using rotation
-        Slider(
-            value = level.toFloat(),
-            onValueChange = { onLevelChange(snapToDecibel(it)) },
-            valueRange = valueRange,
-            modifier = Modifier
-                .height(200.dp)
-                .graphicsLayer {
-                    rotationZ = 270f
-                    transformOrigin = TransformOrigin(0f, 0f)
-                }
-                .layout { measurable, constraints ->
-                    val placeable = measurable.measure(
-                        Constraints(
-                            minWidth = constraints.minHeight,
-                            maxWidth = constraints.maxHeight,
-                            minHeight = constraints.minWidth,
-                            maxHeight = constraints.maxWidth
-                        )
-                    )
-                    layout(placeable.height, placeable.width) {
-                        placeable.place(-placeable.width, 0)
-                    }
-                }
-                .semantics {
-                    contentDescription = bandDescription
-                    stateDescription = levelText
-                },
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = freqText,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold
-        )
-    }
-}
-
-/** Slider positions are snapped to whole decibels (levels are stored in millibels). */
-private fun snapToDecibel(value: Float): Int = (value / 100f).roundToInt() * 100
-
-private fun EqPreset.labelRes(): Int = when (this) {
-    EqPreset.FLAT -> R.string.preset_flat
-    EqPreset.VOICE -> R.string.preset_voice
-    EqPreset.BOOST -> R.string.preset_boost
-    EqPreset.CUSTOM -> R.string.preset_custom
-}
-
 @Preview(showBackground = true)
 @Composable
 fun MainScreenPreview() {
@@ -500,8 +299,6 @@ fun MainScreenPreview() {
                 isLoopbackSafe = false,
                 isServiceRunning = true
             ),
-            bandFrequencies = EqualizerBands.FREQUENCIES_HZ,
-            bandLevelRange = EqualizerBands.MIN_LEVEL_MB.toFloat()..EqualizerBands.MAX_LEVEL_MB.toFloat(),
             micPermissionDenied = false,
             onToggleService = {},
             onOpenAppSettings = {},

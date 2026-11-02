@@ -16,18 +16,19 @@ Streaming only runs while a safe output is connected: wired or USB headphones, B
 - Output is pinned to the safe device and stays muted until the actual route is confirmed safe.
 - The stream is cut if it is ever routed elsewhere, then retried with backoff.
 - Audio failures (for example microphone busy) are retried every 3 seconds.
-- "Slide to bypass safety" lets it stream without a safe output. The setting is remembered, a warning stays visible while it is on, and it is excluded from backups.
+- "Slide to bypass safety" lets it stream without a safe output. The setting is remembered and a warning stays visible while it is on.
 
 ## Structure
 
 Single module, manual DI (`AppContainer`), no extra frameworks.
 
-| Package | Role |
-| :--- | :--- |
-| `audio` | `AudioProcessor` (record/track/DSP), `BiquadEqualizer`, `RouteGuard`, `LoopbackSafety`, `AudioDeviceMonitor` |
-| `service` | `AudioService` (notification host), `StreamingController` (when to stream and retry, no Android dependencies), `ServiceState` |
-| `data` | `SettingsRepository` (Preferences DataStore), `EqPreset` |
-| `ui` | Compose Material 3 screen, `MainViewModel`, `SwipeToggle`, theme |
+```text
+app/src/main/java/com/baccours/ekho/
+├── audio/        # AudioProcessor (record/track/DSP), BiquadEqualizer, RouteGuard, LoopbackSafety, AudioDeviceMonitor
+├── service/      # AudioService (notification host), StreamingController (when to stream and retry, no Android dependencies), ServiceState
+├── data/         # SettingsRepository (Preferences DataStore), EqPreset
+└── ui/           # Compose Material 3 screen, MainViewModel, SwipeToggle, theme
+```
 
 ## Build
 
@@ -35,7 +36,6 @@ Single module, manual DI (`AppContainer`), no extra frameworks.
 - `minSdk` 24, `compileSdk`/`targetSdk` 37; the JDK is provisioned by the Gradle toolchain
 - Open in Android Studio and run `:app` on a physical device, or `./gradlew assembleDebug`
 - Unit tests: `./gradlew test` (JUnit, `kotlinx-coroutines-test`)
-- Release builds have no signing config; add one before distributing.
 
 ## Permissions
 

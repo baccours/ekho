@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onStart
 
 /** Output-device information the streaming logic depends on. */
 interface OutputDevices {
@@ -55,9 +54,10 @@ class AudioDeviceMonitor(context: Context) : OutputDevices {
         }
 
         audioManager.registerAudioDeviceCallback(callback, null)
+        // Initial value after registering, so no change can fall between snapshot and callback.
+        trySend(currentSafeOutputDeviceId())
         awaitClose { audioManager.unregisterAudioDeviceCallback(callback) }
-    }.onStart { emit(currentSafeOutputDeviceId()) }
-        .distinctUntilChanged()
+    }.distinctUntilChanged()
 
     val loopbackSafeStatusFlow: Flow<Boolean> = safeOutputDeviceIdFlow
         .map { it != null }
