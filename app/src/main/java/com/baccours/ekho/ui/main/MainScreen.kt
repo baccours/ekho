@@ -1,6 +1,7 @@
 package com.baccours.ekho.ui.main
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -47,16 +48,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.baccours.ekho.R
+import com.baccours.ekho.data.AppSettings
 import com.baccours.ekho.data.EqPreset
 import com.baccours.ekho.service.AudioService
+import com.baccours.ekho.service.ServiceUiState
 import com.baccours.ekho.ui.components.SwipeToggle
 import com.baccours.ekho.ui.icons.Icons
 import com.baccours.ekho.ui.icons.Play
 import com.baccours.ekho.ui.icons.Stop
 import com.baccours.ekho.ui.theme.EkhoTheme
+
+private fun Context.isGranted(permission: String) =
+    ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
 @Composable
 fun MainScreen(viewModel: MainViewModel = viewModel(factory = MainViewModel.Factory)) {
@@ -74,31 +82,27 @@ fun MainScreen(viewModel: MainViewModel = viewModel(factory = MainViewModel.Fact
         if (micGranted) AudioService.start(context)
     }
 
+    // The permission can be granted in system Settings; clear the banner when we come back.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (context.isGranted(Manifest.permission.RECORD_AUDIO)) micPermissionDenied = false
+    }
+
     // Wait for the saved settings so the safety card doesn't pop in after launch.
     if (uiState.isLoaded) {
         MainContent(
             uiState = uiState,
             micPermissionDenied = micPermissionDenied,
             onToggleService = {
-                if (uiState.isServiceRunning) {
+                if (uiState.service.isRunning) {
                     AudioService.stop(context)
-                } else if (ContextCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.RECORD_AUDIO
-                    )
-                    == PackageManager.PERMISSION_GRANTED
-                ) {
+                } else if (context.isGranted(Manifest.permission.RECORD_AUDIO)) {
                     micPermissionDenied = false
                     AudioService.start(context)
                 } else {
                     val permissions = buildList {
                         add(Manifest.permission.RECORD_AUDIO)
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                            ContextCompat.checkSelfPermission(
-                                context,
-                                Manifest.permission.POST_NOTIFICATIONS
-                            )
-                            != PackageManager.PERMISSION_GRANTED
+                            !context.isGranted(Manifest.permission.POST_NOTIFICATIONS)
                         ) {
                             add(Manifest.permission.POST_NOTIFICATIONS)
                         }
@@ -152,13 +156,13 @@ fun MainContent(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             AnimatedVisibility(
-                visible = !uiState.isLoopbackSafe || uiState.bypassLoopbackProtection,
+                visible = !uiState.isLoopbackSafe || uiState.settings.bypassLoopbackProtection,
                 enter = expandVertically(),
                 exit = shrinkVertically()
             ) {
                 Column {
                     SafetyStatusCard(
-                        bypassLoopbackProtection = uiState.bypassLoopbackProtection,
+                        bypassLoopbackProtection = uiState.settings.bypassLoopbackProtection,
                         onToggleBypass = onToggleBypass
                     )
                     Spacer(modifier = Modifier.height(24.dp))
@@ -166,9 +170,9 @@ fun MainContent(
             }
 
             ServiceControlButton(
-                isServiceRunning = uiState.isServiceRunning,
-                isStreaming = uiState.isStreaming,
-                hasError = uiState.hasError,
+                isServiceRunning = uiState.service.isRunning,
+                isStreaming = uiState.service.isStreaming,
+                hasError = uiState.service.hasError,
                 onToggle = onToggleService
             )
 
@@ -195,8 +199,8 @@ fun MainContent(
             Spacer(modifier = Modifier.height(32.dp))
 
             EqualizerSection(
-                preset = uiState.preset,
-                bandLevels = uiState.bandLevels,
+                preset = uiState.settings.preset,
+                bandLevels = uiState.settings.bandLevels,
                 onPresetChange = onPresetChange,
                 onBandLevelChange = onBandLevelChange
             )
@@ -294,10 +298,12 @@ fun MainScreenPreview() {
     EkhoTheme {
         MainContent(
             uiState = MainUiState(
-                preset = EqPreset.CUSTOM,
-                bandLevels = listOf(200, 0, -300, 100, 0),
-                isLoopbackSafe = false,
-                isServiceRunning = true
+                settings = AppSettings(
+                    preset = EqPreset.CUSTOM,
+                    bandLevels = listOf(200, 0, -300, 100, 0)
+                ),
+                service = ServiceUiState(isRunning = true),
+                isLoopbackSafe = false
             ),
             micPermissionDenied = false,
             onToggleService = {},

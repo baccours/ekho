@@ -98,6 +98,8 @@ class AudioProcessor(
         requireSafeRoute: Boolean,
         onStreaming: () -> Unit
     ): StreamResult {
+        // The device vanished between the event and the lookup: never stream on the default route.
+        if (requireSafeRoute && preferredOutput == null) return StreamResult.RouteUnsafe
         if (!isProcessing.compareAndSet(false, true)) return StreamResult.Stopped
         routeViolated = false
         audible = false

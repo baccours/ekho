@@ -32,10 +32,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -63,7 +65,7 @@ fun EqualizerSection(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { isEditing = !isEditing }
+            .clickable(role = Role.Button) { isEditing = !isEditing }
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
@@ -72,13 +74,23 @@ fun EqualizerSection(
             text = stringResource(R.string.equalizer_title),
             style = MaterialTheme.typography.headlineSmall,
         )
-        Icon(
-            imageVector = if (isEditing) Icons.ArrowUp
-            else Icons.ArrowDown,
-            contentDescription = stringResource(
-                if (isEditing) R.string.collapse else R.string.expand
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // The dropdown shows the preset once expanded; keep it visible while collapsed.
+            if (!isEditing) {
+                Text(
+                    text = stringResource(preset.labelRes()),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(
+                imageVector = if (isEditing) Icons.ArrowUp
+                else Icons.ArrowDown,
+                contentDescription = stringResource(
+                    if (isEditing) R.string.collapse else R.string.expand
+                )
             )
-        )
+        }
     }
 
     AnimatedVisibility(
@@ -174,8 +186,9 @@ fun VerticalBandSlider(
         // Vertical Slider using rotation
         Slider(
             value = level.toFloat(),
-            onValueChange = { onLevelChange(snapToDecibel(it)) },
+            onValueChange = { onLevelChange(it.roundToInt()) }, // on the 1 dB grid, up to float error
             valueRange = LEVEL_RANGE,
+            steps = LEVEL_STEPS,
             modifier = Modifier
                 .height(200.dp)
                 .graphicsLayer {
@@ -202,7 +215,9 @@ fun VerticalBandSlider(
             colors = SliderDefaults.colors(
                 thumbColor = MaterialTheme.colorScheme.primary,
                 activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                activeTickColor = Color.Transparent,
+                inactiveTickColor = Color.Transparent
             )
         )
 
@@ -219,8 +234,8 @@ fun VerticalBandSlider(
 private val LEVEL_RANGE =
     EqualizerBands.MIN_LEVEL_MB.toFloat()..EqualizerBands.MAX_LEVEL_MB.toFloat()
 
-/** Slider positions are snapped to whole decibels (levels are stored in millibels). */
-private fun snapToDecibel(value: Float): Int = (value / 100f).roundToInt() * 100
+/** One detent per whole dB (levels are stored in millibels): 30 intervals, 29 interior steps. */
+private const val LEVEL_STEPS = (EqualizerBands.MAX_LEVEL_MB - EqualizerBands.MIN_LEVEL_MB) / 100 - 1
 
 private fun EqPreset.labelRes(): Int = when (this) {
     EqPreset.FLAT -> R.string.preset_flat

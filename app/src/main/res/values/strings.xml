@@ -3,16 +3,16 @@
 
     <string name="service_start">START</string>
     <string name="service_stop">STOP</string>
-    <string name="service_waiting">STANDBY · SAFE</string>
+    <string name="service_waiting">STANDBY</string>
     <string name="service_error">AUDIO ERROR · RETRYING</string>
 
     <string name="permission_mic_required">Microphone permission is required to start.</string>
     <string name="permission_open_settings">Open settings</string>
 
-    <string name="safety_title">Feedback Loop Risk</string>
-    <string name="safety_title_bypassed">Feedback protection is off</string>
-    <string name="safety_hint_protected">Slide right to bypass safety</string>
-    <string name="safety_hint_bypassed">Slide left to re-enable safety</string>
+    <string name="safety_title">No safe audio output connected</string>
+    <string name="safety_hint_protected">Connect headphones to prevent acoustic feedback, or slide to stream anyway.</string>
+    <string name="safety_title_bypassed">Feedback protection disabled</string>
+    <string name="safety_hint_bypassed">Audio will stream to the built-in speaker. High volume may cause loud feedback. Slide to re-enable protection.</string>
 
     <string name="toggle_on">On</string>
     <string name="toggle_off">Off</string>

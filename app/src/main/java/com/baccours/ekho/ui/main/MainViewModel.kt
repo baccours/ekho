@@ -9,9 +9,11 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.baccours.ekho.EkhoApplication
 import com.baccours.ekho.audio.AudioDeviceMonitor
 import com.baccours.ekho.audio.EqualizerBands
+import com.baccours.ekho.data.AppSettings
 import com.baccours.ekho.data.EqPreset
 import com.baccours.ekho.data.SettingsRepository
 import com.baccours.ekho.service.ServiceState
+import com.baccours.ekho.service.ServiceUiState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,13 +24,9 @@ import kotlinx.coroutines.launch
 
 data class MainUiState(
     val isLoaded: Boolean = false, // False only for the placeholder shown before DataStore has been read.
-    val preset: EqPreset = EqPreset.FLAT,
-    val bandLevels: List<Int> = List(EqualizerBands.COUNT) { 0 },
-    val bypassLoopbackProtection: Boolean = false,
-    val isLoopbackSafe: Boolean = true,
-    val isServiceRunning: Boolean = false,
-    val isStreaming: Boolean = false,
-    val hasError: Boolean = false
+    val settings: AppSettings = AppSettings(),
+    val service: ServiceUiState = ServiceUiState(),
+    val isLoopbackSafe: Boolean = true
 )
 
 class MainViewModel(
@@ -64,22 +62,18 @@ class MainViewModel(
     ) { settings, pending, safe, service ->
         MainUiState(
             isLoaded = true,
-            preset = settings.preset,
-            bandLevels = settings.bandLevels.mapIndexed { band, level -> pending[band] ?: level },
-            bypassLoopbackProtection = settings.bypassLoopbackProtection,
-            isLoopbackSafe = safe,
-            isServiceRunning = service.isRunning,
-            isStreaming = service.isStreaming,
-            hasError = service.hasError
+            settings = settings.copy(
+                bandLevels = settings.bandLevels.mapIndexed { band, level -> pending[band] ?: level }
+            ),
+            service = service,
+            isLoopbackSafe = safe
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = MainUiState(
-            isLoopbackSafe = audioDeviceMonitor.isLoopbackSafe(),
-            isServiceRunning = serviceState.state.value.isRunning,
-            isStreaming = serviceState.state.value.isStreaming,
-            hasError = serviceState.state.value.hasError
+            service = serviceState.state.value,
+            isLoopbackSafe = audioDeviceMonitor.isLoopbackSafe()
         )
     )
 
@@ -103,9 +97,10 @@ class MainViewModel(
     }
 
     fun setPreset(preset: EqPreset) {
-        pendingBandLevels.value = emptyMap()
         viewModelScope.launch {
             repository.savePreset(preset)
+            // Drop pending edits only once the preset is stored, so sliders never fall back to old values.
+            pendingBandLevels.value = emptyMap()
         }
     }
 

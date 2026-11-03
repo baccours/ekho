@@ -10,7 +10,8 @@ interface AudioEngine {
      *
      * With [requireSafeRoute] the output stays muted until the stream is confirmed to be routed to
      * a safe device, and the stream ends with [StreamResult.RouteUnsafe] if it is ever routed
-     * elsewhere (e.g. the loudspeaker after an unplug).
+     * elsewhere (e.g. the loudspeaker after an unplug). A null [preferredOutput] with
+     * [requireSafeRoute] ends immediately with [StreamResult.RouteUnsafe].
      *
      * [onStreaming] is called once per call, from the audio thread, when audio becomes audible
      * (after route confirmation if [requireSafeRoute]). Keep it cheap.
