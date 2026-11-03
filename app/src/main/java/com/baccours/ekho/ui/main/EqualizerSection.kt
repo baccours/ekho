@@ -50,6 +50,8 @@ import com.baccours.ekho.data.EqPreset
 import com.baccours.ekho.ui.icons.ArrowDown
 import com.baccours.ekho.ui.icons.ArrowUp
 import com.baccours.ekho.ui.icons.Icons
+import androidx.compose.ui.tooling.preview.Preview
+import java.text.DecimalFormat
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -163,11 +165,18 @@ fun VerticalBandSlider(
     modifier: Modifier = Modifier
 ) {
     val freqText = if (frequency >= 1000) {
-        stringResource(R.string.band_freq_khz, frequency / 1000)
+        // "0.#": 3.6 kHz keeps its decimal, 14 kHz has none (locale-aware).
+        val khz = DecimalFormat("0.#").format(frequency / 1000.0)
+        stringResource(R.string.band_freq_khz, khz)
     } else {
         stringResource(R.string.band_freq_hz, frequency)
     }
-    val levelText = stringResource(R.string.band_level_format, (level / 100f).roundToInt())
+    val db = (level / 100f).roundToInt()
+    val levelText = if (db == 0) {
+        stringResource(R.string.band_level_zero)
+    } else {
+        stringResource(R.string.band_level_format, db)
+    }
     val bandDescription = stringResource(R.string.band_description, freqText)
 
     Column(
@@ -242,4 +251,15 @@ private fun EqPreset.labelRes(): Int = when (this) {
     EqPreset.VOICE -> R.string.preset_voice
     EqPreset.BOOST -> R.string.preset_boost
     EqPreset.CUSTOM -> R.string.preset_custom
+}
+
+@Preview(showBackground = true)
+@Composable
+fun EqualizerSectionPreview() {
+    EqualizerSection(
+        preset = EqPreset.FLAT,
+        bandLevels = listOf(0, 0, 0, 0, 0),
+        onPresetChange = {},
+        onBandLevelChange = { _, _ -> }
+    )
 }

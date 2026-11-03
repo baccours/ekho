@@ -53,7 +53,7 @@ class AudioProcessor(
         private const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
         private const val CHANNEL_IN = AudioFormat.CHANNEL_IN_MONO
         private const val CHANNEL_OUT = AudioFormat.CHANNEL_OUT_MONO
-        // Backup poll for the routing callback: fast until the route is confirmed, then slow.
+        // Backup poll for the routing callback: fast until the output is unmuted, then slow.
         private const val ROUTE_POLL_FAST_MILLIS = 50L
         private const val ROUTE_POLL_SLOW_MILLIS = 1_000L
 
@@ -72,10 +72,8 @@ class AudioProcessor(
     @Volatile private var audioRecord: AudioRecord? = null
     @Volatile private var audioTrack: AudioTrack? = null
 
-    // Both guarded by levelsLock, so a level update cannot slip in while the equalizer is created.
-    private val levelsLock = Any()
-    private var dsp: BiquadEqualizer? = null
-    private var latestLevels: List<Int> = emptyList()
+    // Written by any thread; the audio thread applies it to its equalizer when the list changes.
+    @Volatile private var latestLevels: List<Int> = emptyList()
 
     // Route supervision (only used when a safe route is required).
     private val routeLock = Any()
@@ -125,7 +123,7 @@ class AudioProcessor(
                     launch(Dispatchers.Default) {
                         while (true) {
                             val pollMillis =
-                                if (routeGuard.isSafe) ROUTE_POLL_SLOW_MILLIS else ROUTE_POLL_FAST_MILLIS
+                                if (audible) ROUTE_POLL_SLOW_MILLIS else ROUTE_POLL_FAST_MILLIS
                             delay(pollMillis.milliseconds)
                             evaluateRoute()
                         }
@@ -172,10 +170,7 @@ class AudioProcessor(
     }
 
     override fun setBandLevels(levels: List<Int>) {
-        synchronized(levelsLock) {
-            latestLevels = levels
-            dsp?.setLevels(levels)
-        }
+        latestLevels = levels
     }
 
     // -------------------------------------------------------------------------
@@ -202,12 +197,9 @@ class AudioProcessor(
         audioTrack = track
 
         val equalizer = BiquadEqualizer(sampleRate)
-        synchronized(levelsLock) {
-            equalizer.setLevels(latestLevels)
-            dsp = equalizer
-        }
+        var appliedLevels: List<Int>? = null
 
-        if (!isProcessing.get()) return StreamResult.Stopped
+        if (!isProcessing.get()) return if (routeViolated) StreamResult.RouteUnsafe else StreamResult.Stopped
 
         if (requireSafeRoute) {
             // Stay silent until the route is confirmed safe, so a wrong route can never leak audio.
@@ -228,6 +220,11 @@ class AudioProcessor(
         while (isProcessing.get()) {
             val read = record.read(buffer, 0, buffer.size)
             if (read > 0) {
+                val levels = latestLevels
+                if (levels !== appliedLevels) {
+                    equalizer.setLevels(levels)
+                    appliedLevels = levels
+                }
                 equalizer.process(buffer, read)
                 val written = track.write(buffer, 0, read)
                 if (written < 0) {
@@ -370,8 +367,6 @@ class AudioProcessor(
     }
 
     private fun releaseResources() {
-        synchronized(levelsLock) { dsp = null }
-
         audioRecord?.apply {
             try {
                 if (state == AudioRecord.STATE_INITIALIZED) {

@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+@Suppress("UnstableApiUsage")
 android {
     namespace = "com.baccours.ekho"
     compileSdk {
@@ -15,6 +16,11 @@ android {
         targetSdk = 37
         versionCode = 2
         versionName = "1.1"
+    }
+
+    androidResources {
+        localeFilters += setOf("en", "fr", "es")
+        generateLocaleConfig = true
     }
 
     buildTypes {
@@ -34,6 +40,10 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 }
 

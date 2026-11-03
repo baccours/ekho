@@ -13,7 +13,7 @@ Android app that streams the phone's built-in microphone to your headphones in r
 
 Streaming only runs while a safe output is connected: wired or USB headphones, Bluetooth (including LE and hearing aids). The phone's own speaker and earpiece are not safe.
 
-- Output is pinned to the safe device and stays muted until the actual route is confirmed safe.
+- Output is pinned to the safe device and stays muted until the actual route is confirmed safe. If the platform reports no route for 1.5 s it unmutes anyway (fail-open); pinning and device callbacks still guard it.
 - The stream is cut if it is ever routed elsewhere, then retried with backoff.
 - Audio failures (for example microphone busy) are retried every 3 seconds.
 - "Slide to bypass safety" lets it stream without a safe output. The setting is remembered and a warning stays visible while it is on.

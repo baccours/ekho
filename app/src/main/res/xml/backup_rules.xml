@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-   Auto Backup rules for API 30 and below (see data_extraction_rules.xml for API 31+).
+   Auto Backup rules for API <=30.
 -->
 <full-backup-content>
     <exclude domain="root" />

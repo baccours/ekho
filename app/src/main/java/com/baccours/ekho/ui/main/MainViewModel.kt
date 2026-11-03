@@ -7,8 +7,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.baccours.ekho.EkhoApplication
-import com.baccours.ekho.audio.AudioDeviceMonitor
 import com.baccours.ekho.audio.EqualizerBands
+import com.baccours.ekho.audio.OutputDevices
 import com.baccours.ekho.data.AppSettings
 import com.baccours.ekho.data.EqPreset
 import com.baccours.ekho.data.SettingsRepository
@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -31,7 +32,7 @@ data class MainUiState(
 
 class MainViewModel(
     private val repository: SettingsRepository,
-    audioDeviceMonitor: AudioDeviceMonitor,
+    devices: OutputDevices,
     serviceState: ServiceState
 ) : ViewModel() {
 
@@ -57,7 +58,7 @@ class MainViewModel(
     val uiState: StateFlow<MainUiState> = combine(
         repository.settingsFlow,
         pendingBandLevels,
-        audioDeviceMonitor.loopbackSafeStatusFlow,
+        devices.safeOutputDeviceIdFlow.map { it != null },
         serviceState.state
     ) { settings, pending, safe, service ->
         MainUiState(
@@ -73,7 +74,7 @@ class MainViewModel(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = MainUiState(
             service = serviceState.state.value,
-            isLoopbackSafe = audioDeviceMonitor.isLoopbackSafe()
+            isLoopbackSafe = devices.currentSafeOutputDeviceId() != null
         )
     )
 

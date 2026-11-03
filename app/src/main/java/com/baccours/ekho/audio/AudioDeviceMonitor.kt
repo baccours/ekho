@@ -8,29 +8,28 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 
-/** Output-device information the streaming logic depends on. */
+/** Output-device monitor interface. */
 interface OutputDevices {
-    /** Emits the id of the preferred safe output device, or null when none is connected. */
+    /** Emits the preferred safe output device ID, or null if none connected. */
     val safeOutputDeviceIdFlow: Flow<Int?>
 
     fun findOutputDevice(id: Int): AudioDeviceInfo?
 
-    /** Synchronous snapshot of [safeOutputDeviceIdFlow], for re-checking without trusting events. */
+    /** Synchronous snapshot of [safeOutputDeviceIdFlow]. */
     fun currentSafeOutputDeviceId(): Int?
 }
 
 class AudioDeviceMonitor(context: Context) : OutputDevices {
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
-    /** The preferred connected output device (wired/USB first) that is safe for pass-through, if any. */
+    /** Preferred safe output device (wired/USB prioritized), if connected. */
     fun findSafeOutputDevice(): AudioDeviceInfo? =
         audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
             .filter { LoopbackSafety.isSafeType(it.type) }
             .minByOrNull { LoopbackSafety.devicePriority(it.type) ?: Int.MAX_VALUE }
 
-    /** The phone's own microphone, if the platform lists it. */
+    /** The built-in microphone, if available. */
     fun findBuiltInMic(): AudioDeviceInfo? =
         audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
             .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
@@ -39,8 +38,6 @@ class AudioDeviceMonitor(context: Context) : OutputDevices {
         audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.id == id }
 
     override fun currentSafeOutputDeviceId(): Int? = findSafeOutputDevice()?.id
-
-    fun isLoopbackSafe(): Boolean = findSafeOutputDevice() != null
 
     override val safeOutputDeviceIdFlow: Flow<Int?> = callbackFlow {
         val callback = object : AudioDeviceCallback() {
@@ -54,12 +51,8 @@ class AudioDeviceMonitor(context: Context) : OutputDevices {
         }
 
         audioManager.registerAudioDeviceCallback(callback, null)
-        // Initial value after registering, so no change can fall between snapshot and callback.
+        // Emit initial state to avoid missing updates before registration.
         trySend(currentSafeOutputDeviceId())
         awaitClose { audioManager.unregisterAudioDeviceCallback(callback) }
     }.distinctUntilChanged()
-
-    val loopbackSafeStatusFlow: Flow<Boolean> = safeOutputDeviceIdFlow
-        .map { it != null }
-        .distinctUntilChanged()
 }

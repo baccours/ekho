@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Ekho</string>
+
+    <string name="service_start">INICIAR</string>
+    <string name="service_stop">DETENER</string>
+    <string name="service_waiting">EN ESPERA</string>
+    <string name="service_error">ERROR DE AUDIO · REINTENTANDO</string>
+
+    <string name="permission_mic_required">Se requiere permiso de micrófono para comenzar.</string>
+    <string name="permission_open_settings">Abrir ajustes</string>
+
+    <string name="safety_title">Sin salida de audio segura conectada</string>
+    <string name="safety_hint_protected">Conecta auriculares para evitar el acoplamiento acústico, o desliza para retransmitir de todos modos.</string>
+    <string name="safety_title_bypassed">Protección contra acoplamiento desactivada</string>
+    <string name="safety_hint_bypassed">El audio se emitirá por el altavoz integrado. Un volumen alto puede causar un fuerte acoplamiento. Desliza para reactivar la protección.</string>
+
+    <string name="toggle_on">Activado</string>
+    <string name="toggle_off">Desactivado</string>
+    <string name="toggle_action">Alternar</string>
+
+    <string name="equalizer_title">Ecualizador</string>
+    <string name="collapse">Contraer</string>
+    <string name="expand">Expandir</string>
+    <string name="preset_label">Preajuste</string>
+    <string name="preset_flat">Plano</string>
+    <string name="preset_voice">Claridad de voz</string>
+    <string name="preset_boost">Amplificación</string>
+    <string name="preset_custom">Personalizado</string>
+
+    <string name="band_description">Banda %1$s</string>
+    <string name="band_level_format">%+d dB</string>
+    <string name="band_level_zero">0 dB</string>
+    <string name="band_freq_hz">%d Hz</string>
+    <string name="band_freq_khz">%s kHz</string>
+
+    <string name="notification_channel_name">Servicio de audio de Ekho</string>
+    <string name="notification_title_active">Ekho está activo</string>
+    <string name="notification_text_active">El retorno de micrófono está en marcha</string>
+    <string name="notification_title_standby">Ekho está en espera</string>
+    <string name="notification_text_standby">Conecta auriculares para comenzar</string>
+    <string name="notification_title_error">Ekho no puede acceder al audio</string>
+    <string name="notification_text_error">Reintentando…</string>
+    <string name="notification_action_stop">Detener</string>
+</resources>

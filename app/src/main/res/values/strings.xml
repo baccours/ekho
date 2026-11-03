@@ -29,8 +29,9 @@
 
     <string name="band_description">%1$s band</string>
     <string name="band_level_format">%+d dB</string>
+    <string name="band_level_zero">0 dB</string>
     <string name="band_freq_hz">%d Hz</string>
-    <string name="band_freq_khz">%d kHz</string>
+    <string name="band_freq_khz">%s kHz</string>
 
     <string name="notification_channel_name">Ekho Audio Service</string>
     <string name="notification_title_active">Ekho is active</string>

@@ -2,19 +2,15 @@ package com.baccours.ekho.audio
 
 import android.media.AudioDeviceInfo
 
-/** What the streaming logic needs from the audio layer; lets it be tested without hardware. */
+/** Audio streaming interface for decoupling hardware during tests. */
 interface AudioEngine {
     /**
-     * Streams microphone audio to [preferredOutput] (or the default route when null) until the
-     * calling coroutine is canceled, [stop] is called, or audio fails.
+     * Streams mic audio to [preferredOutput] (or default route if null) until canceled, stopped, or failed.
      *
-     * With [requireSafeRoute] the output stays muted until the stream is confirmed to be routed to
-     * a safe device, and the stream ends with [StreamResult.RouteUnsafe] if it is ever routed
-     * elsewhere (e.g. the loudspeaker after an unplug). A null [preferredOutput] with
-     * [requireSafeRoute] ends immediately with [StreamResult.RouteUnsafe].
+     * When [requireSafeRoute] is true, audio stays muted until confirmed safe, returning [StreamResult.RouteUnsafe]
+     * on unsafe routes (or if [preferredOutput] is null).
      *
-     * [onStreaming] is called once per call, from the audio thread, when audio becomes audible
-     * (after route confirmation if [requireSafeRoute]). Keep it cheap.
+     * [onStreaming] is invoked on the audio thread once audio becomes audible. Keep execution minimal.
      */
     suspend fun start(
         preferredOutput: AudioDeviceInfo?,
@@ -22,9 +18,9 @@ interface AudioEngine {
         onStreaming: () -> Unit
     ): StreamResult
 
-    /** Silences the output immediately and unblocks the audio loop. Safe from any thread. */
+    /** Silences output immediately and unblocks the loop. Thread-safe. */
     fun stop()
 
-    /** Updates the band gains (millibels). Takes effect immediately, also while streaming. */
+    /** Updates band gains (mB) in real time. */
     fun setBandLevels(levels: List<Int>)
 }
