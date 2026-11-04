@@ -10,10 +10,10 @@
     <string name="permission_mic_required">L\'autorisation d\'utiliser le microphone est requise pour démarrer.</string>
     <string name="permission_open_settings">Ouvrir les paramètres</string>
 
-    <string name="safety_title">Aucune sortie audio sécurisée connectée</string>
-    <string name="safety_hint_protected">Connectez un casque pour éviter l\'effet Larsen, ou glissez pour diffuser malgré tout.</string>
-    <string name="safety_title_bypassed">Protection contre l\'effet Larsen désactivée</string>
-    <string name="safety_hint_bypassed">Le son sera diffusé sur le haut-parleur intégré. Un volume élevé peut provoquer un effet Larsen fort. Glissez pour réactiver la protection.</string>
+    <string name="feedback_title">Aucune sortie audio sécurisée connectée</string>
+    <string name="feedback_hint_protected">Connectez un casque pour éviter l\'effet Larsen, ou glissez pour diffuser malgré tout.</string>
+    <string name="feedback_title_bypassed">Protection contre l\'effet Larsen désactivée</string>
+    <string name="feedback_hint_bypassed">Le son sera diffusé sur le haut-parleur intégré. Un volume élevé peut provoquer un effet Larsen fort. Glissez pour réactiver la protection.</string>
 
     <string name="toggle_on">Activé</string>
     <string name="toggle_off">Désactivé</string>

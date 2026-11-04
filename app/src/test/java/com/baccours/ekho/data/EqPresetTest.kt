@@ -2,28 +2,29 @@ package com.baccours.ekho.data
 
 import com.baccours.ekho.audio.EqualizerBands
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class EqPresetTest {
 
     @Test
-    fun flatAndCustomApplyNoGain() {
+    fun flatAppliesNoGainAndCustomHasNoLevels() {
         assertEquals(List(EqualizerBands.COUNT) { 0 }, EqPreset.FLAT.defaultBandLevels)
-        assertEquals(List(EqualizerBands.COUNT) { 0 }, EqPreset.CUSTOM.defaultBandLevels)
+        assertNull(EqPreset.CUSTOM.defaultBandLevels)
     }
 
     @Test
     fun voicePresetEmphasisesTheSpeechBand() {
-        assertEquals(-200, EqPreset.VOICE.defaultBandLevels[0]) // 60 Hz
+        assertEquals(-200, EqPreset.VOICE.defaultBandLevels!![0]) // 60 Hz
         assertEquals(800, EqPreset.VOICE.defaultBandLevels[3]) // 3.6 kHz
     }
 
     @Test
     fun presetLevelsStayWithinBandLimits() {
-        EqPreset.entries.forEach { preset ->
-            assertEquals(EqualizerBands.COUNT, preset.defaultBandLevels.size)
-            assertTrue(preset.defaultBandLevels.all { it in EqualizerBands.MIN_LEVEL_MB..EqualizerBands.MAX_LEVEL_MB })
+        EqPreset.entries.mapNotNull { it.defaultBandLevels }.forEach { levels ->
+            assertEquals(EqualizerBands.COUNT, levels.size)
+            assertTrue(levels.all { it in EqualizerBands.MIN_LEVEL_MB..EqualizerBands.MAX_LEVEL_MB })
         }
     }
 

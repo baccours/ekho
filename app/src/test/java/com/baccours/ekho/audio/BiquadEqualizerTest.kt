@@ -76,7 +76,7 @@ class BiquadEqualizerTest {
         val buffer = sine(910, 0.01, 48_000)
         equalizer.process(buffer, buffer.size)
 
-        // +15 dB is the ceiling (~5.6x), never the requested ~100 dB.
+        // Clamped at max boost (+15 dB / ~5.6x).
         assertTrue(steadyStatePeak(buffer) < 0.01 * 32767 * 6.5)
     }
 }

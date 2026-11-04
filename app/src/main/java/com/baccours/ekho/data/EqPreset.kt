@@ -1,13 +1,10 @@
 package com.baccours.ekho.data
 
-/**
- * Equalizer presets. [id] is what gets persisted, so it must stay stable; display names are
- * resolved by the UI.
- */
+/** Equalizer presets. [id] is persisted; display names are resolved by UI. */
 enum class EqPreset(
     val id: String,
-    /** Default gain in millibels (1/100 dB) for the 5 bands: 60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz. */
-    val defaultBandLevels: List<Int>,
+    /** Gain in mB (1/100 dB) for 5 bands (60Hz..14kHz). Null for [CUSTOM]. */
+    val defaultBandLevels: List<Int>?,
 ) {
     FLAT(
         id = "flat",
@@ -23,14 +20,14 @@ enum class EqPreset(
     ),
     CUSTOM(
         id = "custom",
-        defaultBandLevels = listOf(0, 0, 0, 0, 0)
+        defaultBandLevels = null
     );
 
     companion object {
-        /** Presets the user can pick; [CUSTOM] is only entered by moving a slider. */
+        /** User-selectable presets. */
         val selectable: List<EqPreset> = listOf(FLAT, VOICE, BOOST)
 
-        // Earlier versions persisted display names.
+        // Migration map for legacy persisted display names.
         private val legacyNames = mapOf(
             "Flat" to FLAT,
             "Voice Clarity" to VOICE,

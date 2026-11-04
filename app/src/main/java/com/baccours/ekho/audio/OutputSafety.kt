@@ -2,12 +2,12 @@ package com.baccours.ekho.audio
 
 import android.media.AudioDeviceInfo
 
-/** Route safety state of the active output device. */
+/** Output device safety state. */
 enum class RouteState { Safe, Unsafe, Unknown }
 
 /** Classifies output device safety for mic pass-through (excludes built-in speaker/earpiece). */
-object LoopbackSafety {
-    /** Safe output device priority (lower is higher priority). */
+object OutputSafety {
+    /** Device priority (lower value = higher priority). Returns null if unsafe. */
     fun devicePriority(deviceType: Int): Int? = when (deviceType) {
         AudioDeviceInfo.TYPE_WIRED_HEADSET,
         AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> 0
@@ -25,16 +25,16 @@ object LoopbackSafety {
         AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> 4
         AudioDeviceInfo.TYPE_BLE_SPEAKER -> 5
         AudioDeviceInfo.TYPE_BLE_BROADCAST -> 6
-        // SCO fallback (conflicts with USAGE_MEDIA)
+        // SCO fallback
         AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> 7
 
-        // Excluded: built-in speaker
+        // Built-in speaker / earpiece
         else -> null
     }
 
     fun isSafeType(deviceType: Int): Boolean = devicePriority(deviceType) != null
 
-    /** Classifies routed device safety (null if unknown). */
+    /** Classifies routed device safety. */
     fun classify(routedDeviceType: Int?): RouteState = when {
         routedDeviceType == null -> RouteState.Unknown
         isSafeType(routedDeviceType) -> RouteState.Safe

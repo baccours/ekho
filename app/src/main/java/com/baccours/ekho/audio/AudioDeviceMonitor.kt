@@ -9,27 +9,27 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 
-/** Output-device monitor interface. */
+/** Output device monitor. */
 interface OutputDevices {
-    /** Emits the preferred safe output device ID, or null if none connected. */
+    /** Emits preferred safe output device ID, or null if none connected. */
     val safeOutputDeviceIdFlow: Flow<Int?>
 
     fun findOutputDevice(id: Int): AudioDeviceInfo?
 
-    /** Synchronous snapshot of [safeOutputDeviceIdFlow]. */
+    /** Snapshot of [safeOutputDeviceIdFlow]. */
     fun currentSafeOutputDeviceId(): Int?
 }
 
 class AudioDeviceMonitor(context: Context) : OutputDevices {
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
-    /** Preferred safe output device (wired/USB prioritized), if connected. */
+    /** Safe output device (wired/USB prioritized), if connected. */
     fun findSafeOutputDevice(): AudioDeviceInfo? =
         audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-            .filter { LoopbackSafety.isSafeType(it.type) }
-            .minByOrNull { LoopbackSafety.devicePriority(it.type) ?: Int.MAX_VALUE }
+            .filter { OutputSafety.isSafeType(it.type) }
+            .minByOrNull { OutputSafety.devicePriority(it.type) ?: Int.MAX_VALUE }
 
-    /** The built-in microphone, if available. */
+    /** Built-in microphone, if available. */
     fun findBuiltInMic(): AudioDeviceInfo? =
         audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
             .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
@@ -51,7 +51,7 @@ class AudioDeviceMonitor(context: Context) : OutputDevices {
         }
 
         audioManager.registerAudioDeviceCallback(callback, null)
-        // Emit initial state to avoid missing updates before registration.
+        // Emit initial state.
         trySend(currentSafeOutputDeviceId())
         awaitClose { audioManager.unregisterAudioDeviceCallback(callback) }
     }.distinctUntilChanged()

@@ -10,19 +10,16 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
- * Five peaking biquad filters (RBJ cookbook) followed by a peak limiter, operating in place on
- * 16-bit mono PCM.
+ * 5-band peaking biquad equalizer (RBJ cookbook) with peak limiter for 16-bit mono PCM.
  *
- * Threading: [setLevels] may be called from any thread; [process] must only be called from the
- * audio thread. Filter state is owned by the audio thread, coefficients are published through a
- * volatile reference to an array that is never mutated after publication.
+ * Threading: [setLevels] is thread-safe; [process] must run on the audio thread only.
  */
 class BiquadEqualizer(private val sampleRate: Int) {
 
     companion object {
-        private const val COEFFICIENTS_PER_BAND = 5 // b0, b1, b2, a1, a2 (normalized by a0)
+        private const val COEFFICIENTS_PER_BAND = 5 // b0, b1, b2, a1, a2 (a0 normalized)
         private const val PEAKING_Q = 0.9
-        private const val MAX_FREQUENCY_RATIO = 0.45 // skip bands too close to Nyquist
+        private const val MAX_FREQUENCY_RATIO = 0.45 // skip bands near Nyquist
         private const val LIMITER_CEILING = 0.9
         private const val LIMITER_RELEASE_SECONDS = 0.05
         private const val FULL_SCALE = 32768.0
@@ -38,7 +35,7 @@ class BiquadEqualizer(private val sampleRate: Int) {
     private var limiterGain = 1.0
     private val limiterRelease = 1.0 - exp(-1.0 / (sampleRate * LIMITER_RELEASE_SECONDS))
 
-    /** Sets the gain of every band in millibels. Missing entries are treated as 0 dB. */
+    /** Sets band gains in millibels (defaults missing bands to 0 dB). */
     fun setLevels(levelsMillibel: List<Int>) {
         val values = DoubleArray(bandCount * COEFFICIENTS_PER_BAND)
         for (band in 0 until bandCount) {
@@ -62,7 +59,7 @@ class BiquadEqualizer(private val sampleRate: Int) {
                 x = y
             }
 
-            // Instant-attack / smooth-release limiter: never lets a sample exceed the ceiling.
+            // Instant-attack, smooth-release limiter ensuring ceiling compliance.
             val peak = abs(x)
             val needed = if (peak > LIMITER_CEILING) LIMITER_CEILING / peak else 1.0
             val relaxed = limiterGain + (1.0 - limiterGain) * limiterRelease

@@ -42,6 +42,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.baccours.ekho.R
@@ -50,7 +51,6 @@ import com.baccours.ekho.data.EqPreset
 import com.baccours.ekho.ui.icons.ArrowDown
 import com.baccours.ekho.ui.icons.ArrowUp
 import com.baccours.ekho.ui.icons.Icons
-import androidx.compose.ui.tooling.preview.Preview
 import java.text.DecimalFormat
 import kotlin.math.roundToInt
 
@@ -77,7 +77,7 @@ fun EqualizerSection(
             style = MaterialTheme.typography.headlineSmall,
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // The dropdown shows the preset once expanded; keep it visible while collapsed.
+            // Show preset label when collapsed.
             if (!isEditing) {
                 Text(
                     text = stringResource(preset.labelRes()),
@@ -165,8 +165,8 @@ fun VerticalBandSlider(
     modifier: Modifier = Modifier
 ) {
     val freqText = if (frequency >= 1000) {
-        // "0.#": 3.6 kHz keeps its decimal, 14 kHz has none (locale-aware).
-        val khz = DecimalFormat("0.#").format(frequency / 1000.0)
+        // Format frequency: e.g. 3.6 kHz vs 14 kHz.
+        val khz = remember(frequency) { DecimalFormat("0.#").format(frequency / 1000.0) }
         stringResource(R.string.band_freq_khz, khz)
     } else {
         stringResource(R.string.band_freq_hz, frequency)
@@ -192,10 +192,10 @@ fun VerticalBandSlider(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Vertical Slider using rotation
+        // Rotated vertical slider.
         Slider(
             value = level.toFloat(),
-            onValueChange = { onLevelChange(it.roundToInt()) }, // on the 1 dB grid, up to float error
+            onValueChange = { onLevelChange(it.roundToInt()) }, // 1 dB grid steps
             valueRange = LEVEL_RANGE,
             steps = LEVEL_STEPS,
             modifier = Modifier
@@ -243,7 +243,7 @@ fun VerticalBandSlider(
 private val LEVEL_RANGE =
     EqualizerBands.MIN_LEVEL_MB.toFloat()..EqualizerBands.MAX_LEVEL_MB.toFloat()
 
-/** One detent per whole dB (levels are stored in millibels): 30 intervals, 29 interior steps. */
+/** 1 dB detents (29 interior steps for 30 dB range). */
 private const val LEVEL_STEPS = (EqualizerBands.MAX_LEVEL_MB - EqualizerBands.MIN_LEVEL_MB) / 100 - 1
 
 private fun EqPreset.labelRes(): Int = when (this) {

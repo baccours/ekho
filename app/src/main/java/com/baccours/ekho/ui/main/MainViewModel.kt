@@ -24,10 +24,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class MainUiState(
-    val isLoaded: Boolean = false, // False only for the placeholder shown before DataStore has been read.
+    val isLoaded: Boolean = false, // False while initial DataStore read is pending.
     val settings: AppSettings = AppSettings(),
     val service: ServiceUiState = ServiceUiState(),
-    val isLoopbackSafe: Boolean = true
+    val hasSafeOutput: Boolean = true
 )
 
 class MainViewModel(
@@ -49,10 +49,7 @@ class MainViewModel(
         }
     }
 
-    /**
-     * Band edits that have not been persisted yet. They are shown immediately (so sliders never
-     * wait on disk) and written in coalesced batches instead of once per drag tick.
-     */
+    // Unpersisted band edits; updated immediately for UI responsiveness and flushed in batches.
     private val pendingBandLevels = MutableStateFlow<Map<Int, Int>>(emptyMap())
 
     val uiState: StateFlow<MainUiState> = combine(
@@ -67,20 +64,19 @@ class MainViewModel(
                 bandLevels = settings.bandLevels.mapIndexed { band, level -> pending[band] ?: level }
             ),
             service = service,
-            isLoopbackSafe = safe
+            hasSafeOutput = safe
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = MainUiState(
             service = serviceState.state.value,
-            isLoopbackSafe = devices.currentSafeOutputDeviceId() != null
+            hasSafeOutput = devices.currentSafeOutputDeviceId() != null
         )
     )
 
     init {
-        // A StateFlow collector that is busy saving only sees the latest map afterward, which is
-        // exactly the coalescing we want while a slider is being dragged.
+        // Coalesce slider updates during drag and persist to DataStore.
         viewModelScope.launch {
             pendingBandLevels.collect { snapshot ->
                 if (snapshot.isEmpty()) return@collect
@@ -100,14 +96,14 @@ class MainViewModel(
     fun setPreset(preset: EqPreset) {
         viewModelScope.launch {
             repository.savePreset(preset)
-            // Drop pending edits only once the preset is stored, so sliders never fall back to old values.
+            // Clear pending edits after preset is persisted.
             pendingBandLevels.value = emptyMap()
         }
     }
 
-    fun setBypassLoopbackProtection(bypass: Boolean) {
+    fun setBypassFeedbackProtection(bypass: Boolean) {
         viewModelScope.launch {
-            repository.saveBypassLoopbackProtection(bypass)
+            repository.saveBypassFeedbackProtection(bypass)
         }
     }
 }

@@ -49,9 +49,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-/**
- * A Material 3 slider-shaped toggle component.
- */
+/** Material 3 swipeable toggle switch component. */
 @Composable
 fun SwipeToggle(
     checked: Boolean,
@@ -98,12 +96,12 @@ fun SwipeToggle(
         val thumbSizePx = with(density) { thumbSize.toPx() }
         val maxOffsetPx = (totalWidthPx - thumbSizePx).coerceAtLeast(0f)
 
-        // Single source of truth for the thumb position: dragged with snapTo, settled with animateTo.
+        // Thumb position state (0 to maxOffsetPx).
         val scope = rememberCoroutineScope()
         val thumbOffset = remember(maxOffsetPx) { Animatable(if (checked) maxOffsetPx else 0f) }
         var isDragging by remember { mutableStateOf(false) }
 
-        // Follow `checked` when it changes externally (programmatically).
+        // Sync with external `checked` state changes.
         LaunchedEffect(checked, maxOffsetPx) {
             if (!isDragging && maxOffsetPx > 0f) {
                 thumbOffset.animateTo(
@@ -113,10 +111,10 @@ fun SwipeToggle(
             }
         }
 
-        // Normalized progress (0.0f to 1.0f).
+        // Normalized progress (0.0 to 1.0).
         val progress = if (maxOffsetPx > 0f) (thumbOffset.value / maxOffsetPx).coerceIn(0f, 1f) else if (checked) 1f else 0f
 
-        // Track.
+        // Track background.
         Box(
             modifier = Modifier
                 .fillMaxHeight()
@@ -128,7 +126,7 @@ fun SwipeToggle(
                 )
         )
 
-        // Thumb.
+        // Thumb handle.
         val draggableState = rememberDraggableState { delta ->
             if (maxOffsetPx > 0f) {
                 scope.launch(start = CoroutineStart.UNDISPATCHED) {

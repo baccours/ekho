@@ -5,7 +5,7 @@ import com.baccours.ekho.audio.AudioDeviceMonitor
 import com.baccours.ekho.data.SettingsRepository
 import com.baccours.ekho.service.ServiceState
 
-/** Manual dependency container for process-wide shared instances. */
+/** Dependency container for process-wide shared instances. */
 class AppContainer(context: Context) {
     val settingsRepository = SettingsRepository(context)
     val audioDeviceMonitor = AudioDeviceMonitor(context)

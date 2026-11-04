@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-   Backup and transfer rules for API 31+ (disabled).
+   Backup and transfer rules (API 31+).
 -->
 <data-extraction-rules>
     <cloud-backup>

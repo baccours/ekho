@@ -75,19 +75,18 @@ fun MainScreen(viewModel: MainViewModel = viewModel(factory = MainViewModel.Fact
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
-        // Only the microphone is required. Notifications are optional: the foreground service
-        // runs without them, so a denial there must never block the app.
+        // RECORD_AUDIO is mandatory; notification permission is optional.
         val micGranted = results[Manifest.permission.RECORD_AUDIO] == true
         micPermissionDenied = !micGranted
         if (micGranted) AudioService.start(context)
     }
 
-    // The permission can be granted in system Settings; clear the banner when we come back.
+    // Clear denied banner if permission was granted in Settings.
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         if (context.isGranted(Manifest.permission.RECORD_AUDIO)) micPermissionDenied = false
     }
 
-    // Wait for the saved settings so the safety card doesn't pop in after launch.
+    // Render content once settings are loaded to prevent layout shift.
     if (uiState.isLoaded) {
         MainContent(
             uiState = uiState,
@@ -118,7 +117,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel(factory = MainViewModel.Fact
                     )
                 )
             },
-            onToggleBypass = { viewModel.setBypassLoopbackProtection(it) },
+            onToggleBypass = { viewModel.setBypassFeedbackProtection(it) },
             onPresetChange = { viewModel.setPreset(it) },
             onBandLevelChange = { bandId, level -> viewModel.updateBandLevel(bandId, level) }
         )
@@ -156,13 +155,13 @@ fun MainContent(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             AnimatedVisibility(
-                visible = !uiState.isLoopbackSafe || uiState.settings.bypassLoopbackProtection,
+                visible = !uiState.hasSafeOutput || uiState.settings.bypassFeedbackProtection,
                 enter = expandVertically(),
                 exit = shrinkVertically()
             ) {
                 Column {
-                    SafetyStatusCard(
-                        bypassLoopbackProtection = uiState.settings.bypassLoopbackProtection,
+                    FeedbackProtectionCard(
+                        bypassFeedbackProtection = uiState.settings.bypassFeedbackProtection,
                         onToggleBypass = onToggleBypass
                     )
                     Spacer(modifier = Modifier.height(24.dp))
@@ -209,14 +208,14 @@ fun MainContent(
 }
 
 @Composable
-fun SafetyStatusCard(
-    bypassLoopbackProtection: Boolean,
+fun FeedbackProtectionCard(
+    bypassFeedbackProtection: Boolean,
     onToggleBypass: (Boolean) -> Unit
 ) {
-    val backgroundColor = if (bypassLoopbackProtection) MaterialTheme.colorScheme.errorContainer
+    val backgroundColor = if (bypassFeedbackProtection) MaterialTheme.colorScheme.errorContainer
         else MaterialTheme.colorScheme.tertiaryContainer
 
-    val contentColor = if (bypassLoopbackProtection) MaterialTheme.colorScheme.onErrorContainer
+    val contentColor = if (bypassFeedbackProtection) MaterialTheme.colorScheme.onErrorContainer
         else MaterialTheme.colorScheme.onTertiaryContainer
 
     Card(
@@ -226,23 +225,23 @@ fun SafetyStatusCard(
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             Text(
                 text = stringResource(
-                    if (bypassLoopbackProtection) R.string.safety_title_bypassed
-                    else R.string.safety_title
+                    if (bypassFeedbackProtection) R.string.feedback_title_bypassed
+                    else R.string.feedback_title
                 ),
                 style = MaterialTheme.typography.titleMedium,
                 color = contentColor
             )
             Text(
                 text = stringResource(
-                    if (bypassLoopbackProtection) R.string.safety_hint_bypassed
-                    else R.string.safety_hint_protected
+                    if (bypassFeedbackProtection) R.string.feedback_hint_bypassed
+                    else R.string.feedback_hint_protected
                 ),
                 style = MaterialTheme.typography.labelMedium,
                 color = contentColor.copy(alpha = 0.8f)
             )
             Spacer(modifier = Modifier.height(8.dp))
             SwipeToggle(
-                checked = bypassLoopbackProtection,
+                checked = bypassFeedbackProtection,
                 onCheckedChange = onToggleBypass,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -303,7 +302,7 @@ fun MainScreenPreview() {
                     bandLevels = listOf(200, 0, -300, 100, 0)
                 ),
                 service = ServiceUiState(isRunning = true),
-                isLoopbackSafe = false
+                hasSafeOutput = false
             ),
             micPermissionDenied = false,
             onToggleService = {},

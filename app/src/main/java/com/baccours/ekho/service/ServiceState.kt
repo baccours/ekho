@@ -8,11 +8,11 @@ import kotlinx.coroutines.flow.update
 data class ServiceUiState(
     val isRunning: Boolean = false,
     val isStreaming: Boolean = false,
-    /** Audio could not be opened or broke down; the service keeps retrying. */
+    /** Indicates streaming failure; retries are active. */
     val hasError: Boolean = false
 )
 
-/** State shared between the service and the UI. One instance lives in the app container. */
+/** Shared state between AudioService and UI. */
 class ServiceState {
     private val _state = MutableStateFlow(ServiceUiState())
     val state: StateFlow<ServiceUiState> = _state.asStateFlow()

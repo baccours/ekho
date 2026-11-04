@@ -9,10 +9,10 @@ class RouteGuard(
     enum class Action { None, Unmute, Cut }
 
     companion object {
-        // Timeout to unmute if platform never reports route confirmation.
+        // Timeout to unmute if route stays unknown.
         const val UNKNOWN_ROUTE_TIMEOUT_MILLIS = 1_500L
 
-        // Grace period during startup to allow pinned device takeover before acting on unsafe routes.
+        // Startup grace period for pinned device takeover before cutting unsafe routes.
         const val ROUTE_STARTUP_GRACE_MILLIS = 1_500L
     }
 

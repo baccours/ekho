@@ -10,10 +10,10 @@
     <string name="permission_mic_required">Se requiere permiso de micrófono para comenzar.</string>
     <string name="permission_open_settings">Abrir ajustes</string>
 
-    <string name="safety_title">Sin salida de audio segura conectada</string>
-    <string name="safety_hint_protected">Conecta auriculares para evitar el acoplamiento acústico, o desliza para retransmitir de todos modos.</string>
-    <string name="safety_title_bypassed">Protección contra acoplamiento desactivada</string>
-    <string name="safety_hint_bypassed">El audio se emitirá por el altavoz integrado. Un volumen alto puede causar un fuerte acoplamiento. Desliza para reactivar la protección.</string>
+    <string name="feedback_title">Sin salida de audio segura conectada</string>
+    <string name="feedback_hint_protected">Conecta auriculares para evitar el acoplamiento acústico, o desliza para retransmitir de todos modos.</string>
+    <string name="feedback_title_bypassed">Protección contra acoplamiento desactivada</string>
+    <string name="feedback_hint_bypassed">El audio se emitirá por el altavoz integrado. Un volumen alto puede causar un fuerte acoplamiento. Desliza para reactivar la protección.</string>
 
     <string name="toggle_on">Activado</string>
     <string name="toggle_off">Desactivado</string>

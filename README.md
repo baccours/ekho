@@ -16,7 +16,7 @@ Streaming only runs while a safe output is connected: wired or USB headphones, B
 - Output is pinned to the safe device and stays muted until the actual route is confirmed safe. If the platform reports no route for 1.5 s it unmutes anyway (fail-open); pinning and device callbacks still guard it.
 - The stream is cut if it is ever routed elsewhere, then retried with backoff.
 - Audio failures (for example microphone busy) are retried every 3 seconds.
-- "Slide to bypass safety" lets it stream without a safe output. The setting is remembered and a warning stays visible while it is on.
+- The toggle on the warning card turns feedback protection off, so it streams without a safe output. The setting is remembered and a warning stays visible while it is on.
 
 ## Structure
 
@@ -24,7 +24,7 @@ Single module, manual DI (`AppContainer`), no extra frameworks.
 
 ```text
 app/src/main/java/com/baccours/ekho/
-├── audio/        # AudioProcessor (record/track/DSP), BiquadEqualizer, RouteGuard, LoopbackSafety, AudioDeviceMonitor
+├── audio/        # AudioProcessor (record/track/DSP), BiquadEqualizer, RouteGuard, OutputSafety, AudioDeviceMonitor
 ├── service/      # AudioService (notification host), StreamingController (when to stream and retry, no Android dependencies), ServiceState
 ├── data/         # SettingsRepository (Preferences DataStore), EqPreset
 └── ui/           # Compose Material 3 screen, MainViewModel, SwipeToggle, theme

@@ -11,7 +11,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.baccours.ekho.EkhoApplication
@@ -26,9 +28,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
-/** Thin Android host: owns the foreground notification and runs a [StreamingController]. */
+/** Foreground service hosting [StreamingController] and notification lifecycle. */
 class AudioService : Service() {
-    // An unexpected failure stops the service instead of crashing the app or idling silently.
+    // Stop service on unhandled coroutine failure.
     private val serviceScope = CoroutineScope(
         Dispatchers.Default + SupervisorJob() + CoroutineExceptionHandler { _, e ->
             Timber.e(e, "Streaming controller failed")
@@ -42,9 +44,9 @@ class AudioService : Service() {
 
     private var isObserving = false
 
-    // Serializes status callbacks (coroutine threads) with onDestroy, so nothing is posted after teardown.
-    private val statusLock = Any()
-    private var destroyed = false // guarded by statusLock
+    // Dispatch status callbacks to main thread.
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var destroyed = false // main thread only
 
     companion object {
         private const val NOTIFICATION_ID = 1
@@ -76,7 +78,7 @@ class AudioService : Service() {
         controller = StreamingController(
             engine = audioProcessor,
             devices = container.audioDeviceMonitor,
-            bypassProtection = container.settingsRepository.bypassLoopbackProtectionFlow,
+            bypassProtection = container.settingsRepository.bypassFeedbackProtectionFlow,
             bandLevels = container.settingsRepository.bandLevelsFlow,
             onStatusChanged = ::onStatusChanged
         )
@@ -90,8 +92,7 @@ class AudioService : Service() {
             return START_NOT_STICKY
         }
 
-        // Enter the foreground before anything else: after startForegroundService() the system
-        // requires it within seconds, whatever else we decide to do.
+        // System requires startForeground() shortly after startForegroundService().
         if (!enterForeground()) {
             stopSelf()
             return START_NOT_STICKY
@@ -109,7 +110,7 @@ class AudioService : Service() {
             serviceScope.launch { controller.run() }
         }
 
-        // Never restart silently: reopening the microphone must be a user action.
+        // Do not restart automatically; mic access requires explicit user launch.
         return START_NOT_STICKY
     }
 
@@ -117,9 +118,10 @@ class AudioService : Service() {
 
     override fun onDestroy() {
         Timber.d("AudioService destroying")
-        synchronized(statusLock) { destroyed = true }
-        serviceScope.cancel()   // cancels the controller and with it the streaming loop
-        audioProcessor.close()  // Hardware safety: stop the processor and free the audio thread
+        destroyed = true
+        mainHandler.removeCallbacksAndMessages(null)
+        serviceScope.cancel()   // cancels controller and streaming loop
+        audioProcessor.close()  // stops processor and releases audio thread
         serviceState.reset()
 
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -148,9 +150,10 @@ class AudioService : Service() {
         }
     }
 
+    // Thread-safe dispatch; avoids notification updates off main thread.
     private fun onStatusChanged(status: StreamingStatus) {
-        synchronized(statusLock) {
-            if (destroyed) return
+        mainHandler.post {
+            if (destroyed) return@post
             serviceState.setStreamingState(
                 isStreaming = status == StreamingStatus.Streaming,
                 hasError = status == StreamingStatus.Error
@@ -169,7 +172,7 @@ class AudioService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        // Reuse the running activity instead of stacking a new one on every tap.
+        // Launch single activity instance on notification click.
         val openAppIntent = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java).addFlags(

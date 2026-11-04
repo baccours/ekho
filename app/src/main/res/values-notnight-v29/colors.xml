@@ -1,4 +1,4 @@
 <resources>
-    <!-- Light surface background for API 29+. -->
+    <!-- Light background (API 29+). -->
     <color name="window_background">#FFFBFBFB</color>
 </resources>

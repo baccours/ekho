@@ -26,23 +26,19 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration.Companion.milliseconds
 
 enum class StreamResult {
-    /** The stream ended because it was stopped or canceled. */
+    /** Stopped or canceled. */
     Stopped,
 
-    /** The stream ended because audio could not be opened or broke down. Retrying may help. */
+    /** Failed to open or broke down. */
     Failed,
 
-    /** The stream was cut because it was (or was about to be) routed to an unsafe output. */
+    /** Cut due to an unsafe output route. */
     RouteUnsafe
 }
 
 class AudioProcessor(
     private val preferredSampleRate: Int = DEFAULT_SAMPLE_RATE,
-    /**
-     * The microphone to record from, or null for the platform default. Pinning the phone's own
-     * microphone keeps a connected headset's microphone (right next to the earpiece, and sometimes
-     * silent or mis-detected) from being picked automatically.
-     */
+    /** Microphone to record from, or null for default. Pinning built-in mic avoids headset mic issues. */
     private val inputDevice: () -> AudioDeviceInfo? = { null }
 ) : AudioEngine {
 
@@ -53,11 +49,11 @@ class AudioProcessor(
         private const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
         private const val CHANNEL_IN = AudioFormat.CHANNEL_IN_MONO
         private const val CHANNEL_OUT = AudioFormat.CHANNEL_OUT_MONO
-        // Backup poll for the routing callback: fast until the output is unmuted, then slow.
+        // Polling interval before/after output is unmuted.
         private const val ROUTE_POLL_FAST_MILLIS = 50L
         private const val ROUTE_POLL_SLOW_MILLIS = 1_000L
 
-        /** The device's native output rate; using it avoids resampling and keeps the fast path. */
+        /** Native output sample rate to avoid resampling. */
         fun nativeSampleRate(context: Context): Int {
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             return audioManager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)
@@ -72,18 +68,18 @@ class AudioProcessor(
     @Volatile private var audioRecord: AudioRecord? = null
     @Volatile private var audioTrack: AudioTrack? = null
 
-    // Written by any thread; the audio thread applies it to its equalizer when the list changes.
+    // Applied by the audio thread on change.
     @Volatile private var latestLevels: List<Int> = emptyList()
 
-    // Route supervision (only used when a safe route is required).
+    // Route supervision for safe routes.
     private val routeLock = Any()
     private val routeGuard = RouteGuard() // guarded by routeLock
     @Volatile private var routingListener: AudioRouting.OnRoutingChangedListener? = null
     @Volatile private var routeViolated = false
-    @Volatile private var audible = false // output unmuted; set by runSession/unmute
+    @Volatile private var audible = false // set by runSession/unmute
     private var lastLoggedRouteType: Int? = null // guarded by routeLock
 
-    // Blocking reads must not occupy a shared pool thread; the audio thread also gets audio priority.
+    // Single-thread executor with high audio priority for blocking IO.
     private val audioDispatcher = Executors.newSingleThreadExecutor { runnable ->
         Thread({
             Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
@@ -96,7 +92,7 @@ class AudioProcessor(
         requireSafeRoute: Boolean,
         onStreaming: () -> Unit
     ): StreamResult {
-        // The device vanished between the event and the lookup: never stream on the default route.
+        // Never stream on default route if safe route is required but output is missing.
         if (requireSafeRoute && preferredOutput == null) return StreamResult.RouteUnsafe
         if (!isProcessing.compareAndSet(false, true)) return StreamResult.Stopped
         routeViolated = false
@@ -108,8 +104,7 @@ class AudioProcessor(
 
         return try {
             coroutineScope {
-                // A blocked AudioRecord.read() cannot observe coroutine cancellation, so a watchdog
-                // stops the recorder the moment we are canceled. This unblocks the read at once.
+                // Watchdog to stop recorder and unblock read() on coroutine cancellation.
                 val watchdog = launch(Dispatchers.Default) {
                     try {
                         awaitCancellation()
@@ -117,8 +112,7 @@ class AudioProcessor(
                         stop()
                     }
                 }
-                // Backup for the routing callback (which arrives on the main thread): confirms the
-                // route before unmuting and cuts the stream if it ever stops being safe.
+                // Poll route safety as a backup to the main-thread routing callback.
                 val routeMonitor = if (requireSafeRoute) {
                     launch(Dispatchers.Default) {
                         while (true) {
@@ -152,7 +146,12 @@ class AudioProcessor(
     override fun stop() {
         if (!isProcessing.compareAndSet(true, false)) return
         try {
-            audioTrack?.setVolume(0f)
+            audioTrack?.apply {
+                setVolume(0f)
+                // Pause and flush to unblock a stalled write().
+                pause()
+                flush()
+            }
         } catch (e: Exception) {
             Timber.e(e, "Error muting AudioTrack")
         }
@@ -163,7 +162,7 @@ class AudioProcessor(
         }
     }
 
-    /** Releases the audio thread. The processor cannot be used afterward. */
+    /** Releases resources and stops the audio thread. Cannot be reused. */
     fun close() {
         stop()
         audioDispatcher.close()
@@ -202,7 +201,7 @@ class AudioProcessor(
         if (!isProcessing.get()) return if (routeViolated) StreamResult.RouteUnsafe else StreamResult.Stopped
 
         if (requireSafeRoute) {
-            // Stay silent until the route is confirmed safe, so a wrong route can never leak audio.
+            // Mute until route is verified safe.
             track.setVolume(0f)
             val listener = AudioRouting.OnRoutingChangedListener { evaluateRoute() }
             routingListener = listener
@@ -249,10 +248,7 @@ class AudioProcessor(
         return if (routeViolated) StreamResult.RouteUnsafe else result
     }
 
-    /**
-     * Checks where the stream is actually routed. Called from the routing callback and from a
-     * poller; idempotent and safe to call from any thread.
-     */
+    /** Evaluates actual stream routing. Thread-safe and idempotent. */
     private fun evaluateRoute() {
         val track = audioTrack ?: return
         if (!isProcessing.get()) return
@@ -264,7 +260,7 @@ class AudioProcessor(
             null
         }
 
-        val state = LoopbackSafety.classify(routedType)
+        val state = OutputSafety.classify(routedType)
         synchronized(routeLock) {
             if (routedType != lastLoggedRouteType) {
                 lastLoggedRouteType = routedType
@@ -358,7 +354,7 @@ class AudioProcessor(
             throw IllegalStateException("AudioTrack failed to initialize")
         }
 
-        // Pin the output to the safe device instead of trusting default routing.
+        // Pin output device instead of defaulting.
         if (preferredOutput != null) {
             val pinned = track.setPreferredDevice(preferredOutput)
             Timber.i("Output pinned to type=${preferredOutput.type} id=${preferredOutput.id}: $pinned")

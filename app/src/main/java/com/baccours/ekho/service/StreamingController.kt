@@ -17,10 +17,7 @@ import kotlin.time.TimeSource
 
 enum class StreamingStatus { Streaming, Waiting, Error }
 
-/**
- * Whether streaming may run, which output device it is pinned to, and whether the actual route
- * must be verified as safe (it must, unless the user bypassed the protection).
- */
+/** Target output state and safety requirements for streaming. */
 data class StreamTarget(
     val allowed: Boolean,
     val outputDeviceId: Int?,
@@ -28,10 +25,7 @@ data class StreamTarget(
 )
 
 object StreamingPolicy {
-    /**
-     * The single place that decides if streaming is allowed: it needs a safe output device unless
-     * the user explicitly bypassed the protection. A safe device is still preferred when present.
-     */
+    /** Determines streaming eligibility and target parameters based on device availability and bypass state. */
     fun target(bypassProtection: Boolean, safeOutputDeviceId: Int?) = StreamTarget(
         allowed = bypassProtection || safeOutputDeviceId != null,
         outputDeviceId = safeOutputDeviceId,
@@ -40,9 +34,7 @@ object StreamingPolicy {
 }
 
 /**
- * Orchestrates streaming independently of Android components: starts/stops the [AudioEngine] as
- * the output devices and the safety bypass change, forwards equalizer levels, and retries after
- * audio failures. The service only hosts it and renders [onStatusChanged].
+ * Manages [AudioEngine] lifecycle based on device changes, bypass settings, and EQ updates with retry handling.
  */
 class StreamingController(
     private val engine: AudioEngine,
@@ -54,8 +46,8 @@ class StreamingController(
 ) {
     companion object {
         const val DEFAULT_RETRY_DELAY_MS = 3_000L
-        private const val MAX_BACKOFF_SHIFT = 3 // retries back off up to 8x after route violations
-        private val HEALTHY_SESSION = 10.seconds // a session this long is not part of a violation streak
+        private const val MAX_BACKOFF_SHIFT = 3 // max 8x backoff multiplier for route violations
+        private val HEALTHY_SESSION = 10.seconds // minimum duration to reset violation streak
     }
 
     private var lastStatus: StreamingStatus? = null
@@ -67,7 +59,7 @@ class StreamingController(
         }
     }
 
-    /** Runs until canceled. */
+    /** Runs streaming controller until canceled. */
     suspend fun run() = coroutineScope {
         launch {
             bandLevels.collect { engine.setBandLevels(it) }
@@ -80,13 +72,9 @@ class StreamingController(
             .collectLatest { target -> stream(target) }
     }
 
-    /**
-     * Canceled automatically by [collectLatest] when the target changes or the controller stops;
-     * the 'finally' block always runs.
-     *
-     * Besides reacting to device events, every pass of the loop re-reads the current conditions
-     * instead of trusting what it started with, so a missed event can never leave the controller
-     * streaming (or retrying) against a device that is gone.
+    /*
+     * Runs streaming loop for current target. Re-verifies target state on each iteration
+     * to handle unobserved device events.
      */
     private suspend fun stream(initial: StreamTarget) {
         var target = initial
@@ -96,7 +84,7 @@ class StreamingController(
                 if (target.allowed) {
                     val output = target.outputDeviceId?.let { devices.findOutputDevice(it) }
                     val startedAt = TimeSource.Monotonic.markNow()
-                    // Streaming is reported by the engine once audible, so failed starts never flash it.
+                    // Reported by engine once audible.
                     val result = engine.start(
                         output,
                         target.requireSafeRoute,
@@ -109,15 +97,13 @@ class StreamingController(
                         }
 
                         StreamResult.Failed -> {
-                            // Audio failed (microphone busy, route lost, ...): surface and retry.
+                            // Hardware/route failure: report error and retry.
                             routeViolations = 0
                             report(StreamingStatus.Error)
                         }
 
                         StreamResult.RouteUnsafe -> {
-                            // Cut before any audio was audible; back off in case the route
-                            // cannot be fixed by retrying. Reported as an error so the user
-                            // sees that streaming is not working instead of a silent wait.
+                            // Cut on unsafe route: back off retry interval and report error.
                             routeViolations =
                                 if (startedAt.elapsedNow() > HEALTHY_SESSION) 1 else routeViolations + 1
                             report(StreamingStatus.Error)

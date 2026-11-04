@@ -20,7 +20,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.time.Duration.Companion.milliseconds
 
-/** Runs on virtual time: the retry delay is skipped, not waited for. */
+/** Unit tests for [StreamingController] using virtual time. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class StreamingControllerTest {
 
@@ -35,7 +35,7 @@ class StreamingControllerTest {
         var lastRequireSafeRoute: Boolean? = null
         val levels = mutableListOf<List<Int>>()
 
-        // Returns the next scripted result, then streams (audibly) until canceled.
+        // Returns scripted result, then streams until canceled.
         override suspend fun start(
             preferredOutput: AudioDeviceInfo?,
             requireSafeRoute: Boolean,
@@ -60,21 +60,21 @@ class StreamingControllerTest {
     private class FakeDevices(initialSafeDeviceId: Int?) : OutputDevices {
         private val reported = MutableStateFlow(initialSafeDeviceId)
 
-        /** What a direct query returns; can differ from the events to simulate a missed event. */
+        /** Direct query result; allows simulating missed device callbacks. */
         var actualSafeDeviceId: Int? = initialSafeDeviceId
 
         override val safeOutputDeviceIdFlow: Flow<Int?> = reported
         override fun findOutputDevice(id: Int): AudioDeviceInfo? = null
         override fun currentSafeOutputDeviceId(): Int? = actualSafeDeviceId
 
-        /** A normal change: the event is delivered and the state matches. */
+        /** Emits device change event and updates direct query snapshot. */
         fun setSafeDevice(id: Int?) {
             actualSafeDeviceId = id
             reported.value = id
         }
     }
 
-    /** Starts a controller and returns the statuses it reports, in order. */
+    /** Launches controller and collects status transitions. */
     private fun TestScope.launchController(
         engine: FakeEngine,
         devices: FakeDevices,
@@ -237,7 +237,7 @@ class StreamingControllerTest {
 
         advance(RETRY_MS) // first retry after 1x
         assertEquals(2, engine.starts)
-        advance(2 * RETRY_MS - 1) // second retry waits 2x
+        advance(2 * RETRY_MS - 1) // second retry uses 2x backoff
         assertEquals(2, engine.starts)
         advance(1)
         assertEquals(3, engine.starts)
@@ -247,7 +247,7 @@ class StreamingControllerTest {
     fun retryDoesNotTrustAStaleDeviceAfterAMissedEvent() = runTest {
         val engine = FakeEngine(StreamResult.Failed)
         val devices = FakeDevices(7)
-        devices.actualSafeDeviceId = null // the unplug event never reached the controller
+        devices.actualSafeDeviceId = null // simulate missed unplug event
         val statuses = launchController(engine, devices)
 
         advance(RETRY_MS)
