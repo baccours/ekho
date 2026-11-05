@@ -1,0 +1,4 @@
+<resources>
+    <!-- Light background (API 29+). -->
+    <color name="window_background">#FFFBFBFB</color>
+</resources>

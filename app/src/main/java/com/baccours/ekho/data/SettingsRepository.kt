@@ -1,133 +1,106 @@
 package com.baccours.ekho.data
 
 import android.content.Context
-import android.media.audiofx.Equalizer
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.baccours.ekho.audio.EqualizerBands
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import timber.log.Timber
+import java.io.IOException
 
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
+// Replaces corrupt DataStore file with defaults instead of crashing.
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "settings",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() }
+)
+
+// Falls back to empty preferences on read IO error.
+private fun DataStore<Preferences>.safeData(): Flow<Preferences> = data.catch { e ->
+    if (e is IOException) emit(emptyPreferences()) else throw e
+}
+
+/** Persisted app configuration. [bandLevels] are in mB. */
+data class AppSettings(
+    val preset: EqPreset = EqPreset.FLAT,
+    val bandLevels: List<Int> = List(EqualizerBands.COUNT) { 0 },
+    val bypassFeedbackProtection: Boolean = false
+)
 
 class SettingsRepository(private val context: Context) {
 
     companion object {
-        val PRESET_KEY = stringPreferencesKey("equalizer_preset")
-        val BYPASS_LOOPBACK_PROTECTION_KEY = booleanPreferencesKey("bypass_loopback_protection")
-        const val BAND_PREFIX = "band_"
-        
-        const val PRESET_FLAT = "Flat"
-        const val PRESET_VOICE = "Voice Clarity"
-        const val PRESET_BOOST = "Low Latency Boost"
-        const val PRESET_CUSTOM = "Custom"
-
-        private val DEFAULT_FREQS = listOf(60, 230, 910, 3600, 14000)
+        private val PRESET_KEY = stringPreferencesKey("equalizer_preset")
+        // Persisted key name.
+        private val BYPASS_FEEDBACK_PROTECTION_KEY = booleanPreferencesKey("bypass_feedback_protection")
+        private fun bandKey(band: Int) = intPreferencesKey("band_$band")
     }
 
-    val bandCount: Int
-    val minBandLevel: Int
-    val maxBandLevel: Int
-    val bandFrequencies: List<Int>
+    /** App settings flow from DataStore. */
+    val settingsFlow: Flow<AppSettings> = context.dataStore.safeData()
+        .map { preferences ->
+            AppSettings(
+                preset = EqPreset.fromId(preferences[PRESET_KEY]),
+                bandLevels = List(EqualizerBands.COUNT) { band ->
+                    (preferences[bandKey(band)] ?: 0)
+                        .coerceIn(EqualizerBands.MIN_LEVEL_MB, EqualizerBands.MAX_LEVEL_MB)
+                },
+                bypassFeedbackProtection = preferences[BYPASS_FEEDBACK_PROTECTION_KEY] ?: false
+            )
+        }
+        .distinctUntilChanged()
 
-    init {
-        var count = DEFAULT_FREQS.size
-        var min = -1500
-        var max = 1500
-        val freqs = mutableListOf<Int>()
-        
+    val bandLevelsFlow: Flow<List<Int>> = settingsFlow
+        .map { it.bandLevels }
+        .distinctUntilChanged()
+
+    /** Feedback protection bypass state flow. */
+    val bypassFeedbackProtectionFlow: Flow<Boolean> = settingsFlow
+        .map { it.bypassFeedbackProtection }
+        .distinctUntilChanged()
+
+    // Logs and swallows write failures (e.g. full disk).
+    private suspend fun write(transform: suspend (MutablePreferences) -> Unit) {
         try {
-            val eq = Equalizer(0, 0)
-            count = eq.numberOfBands.toInt()
-            val range = eq.bandLevelRange
-            if (range != null && range.size >= 2) {
-                min = range[0].toInt()
-                max = range[1].toInt()
-            }
-            for (i in 0 until count) {
-                freqs.add(eq.getCenterFreq(i.toShort()) / 1000) // Convert to Hz
-            }
-            eq.release()
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to query hardware equalizer, using defaults")
-            // Fallback to defaults already set
-            if (freqs.isEmpty()) {
-                freqs.addAll(DEFAULT_FREQS)
-                count = DEFAULT_FREQS.size
-            }
-        }
-        
-        bandCount = count
-        minBandLevel = min
-        maxBandLevel = max
-        bandFrequencies = freqs
-    }
-
-    val presetFlow: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[PRESET_KEY] ?: PRESET_FLAT
-    }
-
-    val bypassLoopbackProtectionFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
-        preferences[BYPASS_LOOPBACK_PROTECTION_KEY] ?: false
-    }
-
-    val bandLevelsFlow: Flow<Map<Int, Int>> = context.dataStore.data.map { preferences ->
-        (0 until bandCount).associateWith { band ->
-            preferences[intPreferencesKey("$BAND_PREFIX$band")] ?: 0
+            context.dataStore.edit(transform)
+        } catch (e: IOException) {
+            Timber.e(e, "Failed to persist settings")
         }
     }
 
-    suspend fun savePreset(preset: String) {
-        context.dataStore.edit { preferences ->
-            preferences[PRESET_KEY] = preset
-            
-            if (preset == PRESET_CUSTOM) return@edit
+    suspend fun saveBypassFeedbackProtection(bypass: Boolean) = write { preferences ->
+        preferences[BYPASS_FEEDBACK_PROTECTION_KEY] = bypass
+    }
 
-            for (band in 0 until bandCount) {
-                val freq = bandFrequencies.getOrNull(band) ?: 0
-                val level = when (preset) {
-                    PRESET_VOICE -> when {
-                        freq < 200 -> -200
-                        freq < 1000 -> 200
-                        freq < 4000 -> 800
-                        else -> 200
-                    }
-                    PRESET_BOOST -> when {
-                        freq < 200 -> 400
-                        freq < 1000 -> 100
-                        freq < 4000 -> 100
-                        else -> 400
-                    }
-                    else -> 0 // PRESET_FLAT
+    suspend fun savePreset(preset: EqPreset) = write { preferences ->
+        preferences[PRESET_KEY] = preset.id
+        // Preserve user levels for CUSTOM.
+        preset.defaultBandLevels?.forEachIndexed { band, level ->
+            preferences[bandKey(band)] = level
+        }
+    }
+
+    /** Persists band levels (band index -> mB) and sets preset to CUSTOM. */
+    suspend fun saveBandLevels(levels: Map<Int, Int>) {
+        if (levels.isEmpty()) return
+        write { preferences ->
+            levels.forEach { (band, level) ->
+                if (band in 0 until EqualizerBands.COUNT) {
+                    preferences[bandKey(band)] = level
+                        .coerceIn(EqualizerBands.MIN_LEVEL_MB, EqualizerBands.MAX_LEVEL_MB)
                 }
-                preferences[intPreferencesKey("$BAND_PREFIX$band")] = level
             }
-        }
-    }
-
-    suspend fun saveBandLevel(bandId: Int, level: Int) {
-        context.dataStore.edit { preferences ->
-            preferences[intPreferencesKey("$BAND_PREFIX$bandId")] = level
-            preferences[PRESET_KEY] = PRESET_CUSTOM
-        }
-    }
-
-    suspend fun saveBypassLoopbackProtection(bypass: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[BYPASS_LOOPBACK_PROTECTION_KEY] = bypass
-        }
-    }
-    
-    suspend fun getAllBandLevels(): Map<Int, Int> {
-        val prefs = context.dataStore.data.map { it }.first()
-        return (0 until bandCount).associateWith { band ->
-            prefs[intPreferencesKey("$BAND_PREFIX$band")] ?: 0
+            preferences[PRESET_KEY] = EqPreset.CUSTOM.id
         }
     }
 }

@@ -4,6 +4,8 @@ import android.app.Application
 import timber.log.Timber
 
 class EkhoApplication : Application() {
+    val container: AppContainer by lazy { AppContainer(this) }
+
     override fun onCreate() {
         super.onCreate()
         if (BuildConfig.DEBUG) {

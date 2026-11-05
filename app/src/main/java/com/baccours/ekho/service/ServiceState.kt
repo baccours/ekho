@@ -7,10 +7,13 @@ import kotlinx.coroutines.flow.update
 
 data class ServiceUiState(
     val isRunning: Boolean = false,
-    val isStreaming: Boolean = false
+    val isStreaming: Boolean = false,
+    /** Indicates streaming failure; retries are active. */
+    val hasError: Boolean = false
 )
 
-object ServiceState {
+/** Shared state between AudioService and UI. */
+class ServiceState {
     private val _state = MutableStateFlow(ServiceUiState())
     val state: StateFlow<ServiceUiState> = _state.asStateFlow()
 
@@ -18,11 +21,11 @@ object ServiceState {
         _state.update { it.copy(isRunning = running) }
     }
 
-    fun setStreaming(streaming: Boolean) {
-        _state.update { it.copy(isStreaming = streaming) }
+    fun setStreamingState(isStreaming: Boolean, hasError: Boolean) {
+        _state.update { it.copy(isStreaming = isStreaming, hasError = hasError) }
     }
 
     fun reset() {
-        _state.update { ServiceUiState() }
+        _state.value = ServiceUiState()
     }
 }

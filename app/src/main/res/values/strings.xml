@@ -1,3 +1,45 @@
 <resources>
     <string name="app_name">Ekho</string>
+
+    <string name="service_start">START</string>
+    <string name="service_stop">STOP</string>
+    <string name="service_waiting">STANDBY</string>
+    <string name="service_error">AUDIO ERROR · RETRYING</string>
+
+    <string name="permission_mic_required">Microphone permission is required to start.</string>
+    <string name="permission_open_settings">Open settings</string>
+
+    <string name="feedback_title">No safe audio output connected</string>
+    <string name="feedback_hint_protected">Connect headphones to prevent acoustic feedback, or slide to stream anyway.</string>
+    <string name="feedback_title_bypassed">Feedback protection disabled</string>
+    <string name="feedback_hint_bypassed">Audio will stream to the built-in speaker. High volume may cause loud feedback. Slide to re-enable protection.</string>
+
+    <string name="toggle_on">On</string>
+    <string name="toggle_off">Off</string>
+    <string name="toggle_action">Toggle</string>
+    <string name="feedback_toggle_label">Stream without feedback protection</string>
+
+    <string name="equalizer_title">Equalizer</string>
+    <string name="collapse">Collapse</string>
+    <string name="expand">Expand</string>
+    <string name="preset_label">Preset</string>
+    <string name="preset_flat">Flat</string>
+    <string name="preset_voice">Voice Clarity</string>
+    <string name="preset_boost">Boost</string>
+    <string name="preset_custom">Custom</string>
+
+    <string name="band_description">%1$s band</string>
+    <string name="band_level_format">%+d dB</string>
+    <string name="band_level_zero">0 dB</string>
+    <string name="band_freq_hz">%d Hz</string>
+    <string name="band_freq_khz">%s kHz</string>
+
+    <string name="notification_channel_name">Ekho Audio Service</string>
+    <string name="notification_title_active">Ekho is active</string>
+    <string name="notification_text_active">Microphone pass-through is running</string>
+    <string name="notification_title_standby">Ekho is in standby</string>
+    <string name="notification_text_standby">Connect headphones to start</string>
+    <string name="notification_title_error">Ekho can\'t access audio</string>
+    <string name="notification_text_error">Retrying…</string>
+    <string name="notification_action_stop">Stop</string>
 </resources>

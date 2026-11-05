@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -22,9 +22,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,7 +32,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -40,18 +43,17 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import com.baccours.ekho.ui.icons.Check
-import com.baccours.ekho.ui.icons.ArrowRight
-import com.baccours.ekho.ui.icons.Icons
+import com.baccours.ekho.R
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-/**
- * A Material 3 slider-shaped toggle component.
- */
+/** Material 3 swipeable toggle switch component. [label] is the accessible name (not drawn). */
 @Composable
 fun SwipeToggle(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    label: String,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     swipeThreshold: Float = 0.9f,
@@ -65,6 +67,8 @@ fun SwipeToggle(
 ) {
     val density = LocalDensity.current
     val clampedThreshold = swipeThreshold.coerceIn(0.01f, 1f)
+    val stateText = stringResource(if (checked) R.string.toggle_on else R.string.toggle_off)
+    val actionLabel = stringResource(R.string.toggle_action)
 
     BoxWithConstraints(
         modifier = modifier
@@ -72,9 +76,10 @@ fun SwipeToggle(
             .height(trackHeight)
             .semantics(mergeDescendants = true) {
                 role = Role.Switch
-                stateDescription = if (checked) "On" else "Off"
+                contentDescription = label
+                stateDescription = stateText
                 if (enabled) {
-                    onClick(label = "Toggle") {
+                    onClick(label = actionLabel) {
                         onCheckedChange(!checked)
                         true
                     }
@@ -92,39 +97,29 @@ fun SwipeToggle(
         val thumbSizePx = with(density) { thumbSize.toPx() }
         val maxOffsetPx = (totalWidthPx - thumbSizePx).coerceAtLeast(0f)
 
-        // Immediate UI frame-state during drag.
-        var offsetX by remember(maxOffsetPx) {
-            mutableFloatStateOf(if (checked) maxOffsetPx else 0f)
-        }
+        // Thumb position state (0 to maxOffsetPx).
+        val scope = rememberCoroutineScope()
+        val thumbOffset = remember(maxOffsetPx) { Animatable(if (checked) maxOffsetPx else 0f) }
         var isDragging by remember { mutableStateOf(false) }
 
-        // Persistent Animatable for smooth snaps & external updates.
-        val animatable = remember { Animatable(offsetX) }
-
-        // Sync internal offset when `checked` changes externally (programmatically).
+        // Sync with external `checked` state changes.
         LaunchedEffect(checked, maxOffsetPx) {
             if (!isDragging && maxOffsetPx > 0f) {
-                val targetPx = if (checked) maxOffsetPx else 0f
-                if (offsetX != targetPx) {
-                    animatable.snapTo(offsetX)
-                    animatable.animateTo(
-                        targetValue = targetPx,
-                        animationSpec = tween(durationMillis = 200)
-                    ) {
-                        offsetX = value
-                    }
-                }
+                thumbOffset.animateTo(
+                    targetValue = if (checked) maxOffsetPx else 0f,
+                    animationSpec = tween(durationMillis = 200)
+                )
             }
         }
 
-        // Normalized progress (0.0f to 1.0f).
-        val progress = if (maxOffsetPx > 0f) (offsetX / maxOffsetPx).coerceIn(0f, 1f) else if (checked) 1f else 0f
+        // Normalized progress (0.0 to 1.0).
+        val progress = if (maxOffsetPx > 0f) (thumbOffset.value / maxOffsetPx).coerceIn(0f, 1f) else if (checked) 1f else 0f
 
-        // Track.
+        // Track background.
         Box(
             modifier = Modifier
                 .fillMaxHeight()
-                .width(thumbSize + with(density) { offsetX.toDp() })
+                .width(thumbSize + with(density) { thumbOffset.value.toDp() })
                 .clip(CircleShape)
                 .background(
                     if (enabled) activeTrackColor.copy(alpha = 0.2f + (progress * 0.8f))
@@ -132,16 +127,18 @@ fun SwipeToggle(
                 )
         )
 
-        // Thumb.
+        // Thumb handle.
         val draggableState = rememberDraggableState { delta ->
             if (maxOffsetPx > 0f) {
-                offsetX = (offsetX + delta).coerceIn(0f, maxOffsetPx)
+                scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    thumbOffset.snapTo((thumbOffset.value + delta).coerceIn(0f, maxOffsetPx))
+                }
             }
         }
 
         Box(
             modifier = Modifier
-                .offset { IntOffset(offsetX.roundToInt(), 0) }
+                .offset { IntOffset(thumbOffset.value.roundToInt(), 0) }
                 .size(thumbSize)
                 .shadow(
                     elevation = if (isDragging) 6.dp else 2.dp,
@@ -159,12 +156,12 @@ fun SwipeToggle(
                             orientation = Orientation.Horizontal,
                             onDragStarted = {
                                 isDragging = true
-                                animatable.stop()
+                                thumbOffset.stop()
                             },
                             onDragStopped = {
                                 isDragging = false
                                 if (maxOffsetPx > 0f) {
-                                    val currentProgress = offsetX / maxOffsetPx
+                                    val currentProgress = thumbOffset.value / maxOffsetPx
 
                                     val targetChecked = if (checked) {
                                         currentProgress > (1f - clampedThreshold)
@@ -174,13 +171,10 @@ fun SwipeToggle(
 
                                     val targetPx = if (targetChecked) maxOffsetPx else 0f
 
-                                    animatable.snapTo(offsetX)
-                                    animatable.animateTo(
+                                    thumbOffset.animateTo(
                                         targetValue = targetPx,
                                         animationSpec = tween(durationMillis = 200)
-                                    ) {
-                                        offsetX = value
-                                    }
+                                    )
 
                                     if (targetChecked != checked) {
                                         onCheckedChange(targetChecked)
@@ -193,7 +187,7 @@ fun SwipeToggle(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = if (checked) Icons.Check else Icons.ArrowRight,
+                painter = painterResource(if (checked) R.drawable.ic_check else R.drawable.ic_arrow_right),
                 contentDescription = null,
                 tint = if (enabled) thumbContentColor else MaterialTheme.colorScheme.surface
             )

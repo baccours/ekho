@@ -1,18 +1,17 @@
 package com.baccours.ekho.ui.main
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,65 +27,116 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.baccours.ekho.data.SettingsRepository
+import com.baccours.ekho.R
+import com.baccours.ekho.data.AppSettings
+import com.baccours.ekho.data.EqPreset
 import com.baccours.ekho.service.AudioService
+import com.baccours.ekho.service.ServiceUiState
 import com.baccours.ekho.ui.components.SwipeToggle
-import com.baccours.ekho.ui.icons.Icons
-import com.baccours.ekho.ui.icons.ArrowDown
-import com.baccours.ekho.ui.icons.ArrowUp
-import com.baccours.ekho.ui.icons.Play
-import com.baccours.ekho.ui.icons.Stop
 import com.baccours.ekho.ui.theme.EkhoTheme
+
+private fun Context.isGranted(permission: String) =
+    ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
+@Composable
+fun MainScreen(viewModel: MainViewModel = viewModel(factory = MainViewModel.Factory)) {
+    val context = LocalContext.current
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    var micPermissionDenied by rememberSaveable { mutableStateOf(false) }
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        // RECORD_AUDIO is mandatory; notification permission is optional.
+        val micGranted = results[Manifest.permission.RECORD_AUDIO] == true
+        micPermissionDenied = !micGranted
+        if (micGranted) AudioService.start(context)
+    }
+
+    // Clear denied banner if permission was granted in Settings.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (context.isGranted(Manifest.permission.RECORD_AUDIO)) micPermissionDenied = false
+    }
+
+    // Render content once settings are loaded to prevent layout shift.
+    if (uiState.isLoaded) {
+        MainContent(
+            uiState = uiState,
+            micPermissionDenied = micPermissionDenied,
+            onToggleService = {
+                if (uiState.service.isRunning) {
+                    AudioService.stop(context)
+                } else if (context.isGranted(Manifest.permission.RECORD_AUDIO)) {
+                    micPermissionDenied = false
+                    AudioService.start(context)
+                } else {
+                    val permissions = buildList {
+                        add(Manifest.permission.RECORD_AUDIO)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            !context.isGranted(Manifest.permission.POST_NOTIFICATIONS)
+                        ) {
+                            add(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
+                    launcher.launch(permissions.toTypedArray())
+                }
+            },
+            onOpenAppSettings = {
+                context.startActivity(
+                    Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", context.packageName, null)
+                    )
+                )
+            },
+            onToggleBypass = { viewModel.setBypassFeedbackProtection(it) },
+            onPresetChange = { viewModel.setPreset(it) },
+            onBandLevelChange = { bandId, level -> viewModel.updateBandLevel(bandId, level) }
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(viewModel: MainViewModel = viewModel()) {
-    val context = LocalContext.current
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    
-    val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
-        // Permissions updated, ViewModel can react if needed, 
-        // but here we just let the UI recompose and check again on next click
-    }
-
+private fun MainContent(
+    uiState: MainUiState,
+    micPermissionDenied: Boolean,
+    onToggleService: () -> Unit,
+    onOpenAppSettings: () -> Unit,
+    onToggleBypass: (Boolean) -> Unit,
+    onPresetChange: (EqPreset) -> Unit,
+    onBandLevelChange: (Int, Int) -> Unit
+) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Ekho", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.app_name), fontWeight = FontWeight.Bold) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -103,72 +153,67 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             AnimatedVisibility(
-                visible = !uiState.isLoopbackSafe,
+                visible = !uiState.hasSafeOutput || uiState.settings.bypassFeedbackProtection,
                 enter = expandVertically(),
                 exit = shrinkVertically()
             ) {
                 Column {
-                    SafetyStatusCard(
-                        bypassLoopbackProtection = uiState.bypassLoopbackProtection,
-                        onToggleBypass = { viewModel.setBypassLoopbackProtection(it) }
+                    FeedbackProtectionCard(
+                        bypassFeedbackProtection = uiState.settings.bypassFeedbackProtection,
+                        onToggleBypass = onToggleBypass
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                 }
             }
 
             ServiceControlButton(
-                isServiceRunning = uiState.isServiceRunning,
-                isStreaming = uiState.isStreaming,
-                onToggle = {
-                    if (uiState.isServiceRunning) {
-                        val intent = Intent(context, AudioService::class.java).apply {
-                            action = AudioService.ACTION_STOP
-                        }
-                        context.startService(intent)
-                    } else {
-                        val permissions = mutableListOf<String>()
-                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                            permissions.add(Manifest.permission.RECORD_AUDIO)
-                        }
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-                        }
+                isServiceRunning = uiState.service.isRunning,
+                isStreaming = uiState.service.isStreaming,
+                hasError = uiState.service.hasError,
+                onToggle = onToggleService
+            )
 
-                        if (permissions.isNotEmpty()) {
-                            launcher.launch(permissions.toTypedArray())
-                        } else {
-                            val intent = Intent(context, AudioService::class.java)
-                            ContextCompat.startForegroundService(context, intent)
-                        }
+            if (micPermissionDenied) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = stringResource(R.string.permission_mic_required),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = onOpenAppSettings) {
+                        Text(stringResource(R.string.permission_open_settings))
                     }
                 }
-            )
+            }
 
             Spacer(modifier = Modifier.height(32.dp))
 
             EqualizerSection(
-                preset = uiState.preset,
-                bandLevels = uiState.bandLevels,
-                bandFrequencies = viewModel.bandFrequencies,
-                bandLevelRange = viewModel.bandLevelRange,
-                onPresetChange = { viewModel.setPreset(it) },
-                onBandLevelChange = { bandId, level -> viewModel.updateBandLevel(bandId, level) }
+                preset = uiState.settings.preset,
+                bandLevels = uiState.settings.bandLevels,
+                onPresetChange = onPresetChange,
+                onBandLevelChange = onBandLevelChange
             )
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SafetyStatusCard(
-    bypassLoopbackProtection: Boolean,
+private fun FeedbackProtectionCard(
+    bypassFeedbackProtection: Boolean,
     onToggleBypass: (Boolean) -> Unit
 ) {
-    val backgroundColor = if (bypassLoopbackProtection) MaterialTheme.colorScheme.errorContainer
+    val backgroundColor = if (bypassFeedbackProtection) MaterialTheme.colorScheme.errorContainer
         else MaterialTheme.colorScheme.tertiaryContainer
 
-    val contentColor = if (bypassLoopbackProtection) MaterialTheme.colorScheme.onErrorContainer
+    val contentColor = if (bypassFeedbackProtection) MaterialTheme.colorScheme.onErrorContainer
         else MaterialTheme.colorScheme.onTertiaryContainer
 
     Card(
@@ -177,20 +222,26 @@ fun SafetyStatusCard(
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             Text(
-                text = "Feedback Loop Risk",
+                text = stringResource(
+                    if (bypassFeedbackProtection) R.string.feedback_title_bypassed
+                    else R.string.feedback_title
+                ),
                 style = MaterialTheme.typography.titleMedium,
                 color = contentColor
             )
             Text(
-                text = if (bypassLoopbackProtection) "Slide left to re-enable safety"
-                    else "Slide right to bypass safety",
+                text = stringResource(
+                    if (bypassFeedbackProtection) R.string.feedback_hint_bypassed
+                    else R.string.feedback_hint_protected
+                ),
                 style = MaterialTheme.typography.labelMedium,
-                color = contentColor.copy(alpha = 0.5f)
+                color = contentColor.copy(alpha = 0.8f)
             )
             Spacer(modifier = Modifier.height(8.dp))
             SwipeToggle(
-                checked = bypassLoopbackProtection,
+                checked = bypassFeedbackProtection,
                 onCheckedChange = onToggleBypass,
+                label = stringResource(R.string.feedback_toggle_label),
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -198,9 +249,10 @@ fun SafetyStatusCard(
 }
 
 @Composable
-fun ServiceControlButton(
+private fun ServiceControlButton(
     isServiceRunning: Boolean,
     isStreaming: Boolean,
+    hasError: Boolean,
     onToggle: () -> Unit
 ) {
     val buttonColor = when {
@@ -209,11 +261,14 @@ fun ServiceControlButton(
         else -> MaterialTheme.colorScheme.secondary
     }
 
-    val buttonText = when {
-        !isServiceRunning -> "START"
-        isStreaming -> "STOP"
-        else -> "STANDBY (unsafe)"
-    }
+    val buttonText = stringResource(
+        when {
+            !isServiceRunning -> R.string.service_start
+            isStreaming -> R.string.service_stop
+            hasError -> R.string.service_error
+            else -> R.string.service_waiting
+        }
+    )
 
     Button(
         onClick = onToggle,
@@ -224,7 +279,7 @@ fun ServiceControlButton(
         colors = ButtonDefaults.buttonColors(containerColor = buttonColor)
     ) {
         Icon(
-            imageVector = if (isServiceRunning) Icons.Stop else Icons.Play,
+            painter = painterResource(if (isServiceRunning) R.drawable.ic_stop else R.drawable.ic_play),
             contentDescription = null
         )
         Spacer(modifier = Modifier.width(8.dp))
@@ -235,179 +290,25 @@ fun ServiceControlButton(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun EqualizerSection(
-    preset: String,
-    bandLevels: Map<Int, Int>,
-    bandFrequencies: List<Int>,
-    bandLevelRange: ClosedFloatingPointRange<Float>,
-    onPresetChange: (String) -> Unit,
-    onBandLevelChange: (Int, Int) -> Unit
-) {
-    var isEditing by remember { mutableStateOf(false) }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { isEditing = !isEditing }
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(
-            text = "Equalizer",
-            style = MaterialTheme.typography.headlineSmall,
-        )
-        Icon(
-            imageVector = if (isEditing) Icons.ArrowUp
-            else Icons.ArrowDown,
-            contentDescription = if (isEditing) "Collapse" else "Expand"
-        )
-    }
-
-    AnimatedVisibility(
-        visible = isEditing,
-        enter = expandVertically() + fadeIn(),
-        exit = shrinkVertically() + fadeOut()
-    ) {
-        Column {
-            Spacer(modifier = Modifier.height(8.dp))
-
-            var expanded by remember { mutableStateOf(false) }
-            val presets = listOf(
-                SettingsRepository.PRESET_FLAT,
-                SettingsRepository.PRESET_VOICE,
-                SettingsRepository.PRESET_BOOST
-            )
-
-            ExposedDropdownMenuBox(
-                expanded = expanded,
-                onExpandedChange = { expanded = !expanded },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                OutlinedTextField(
-                    value = preset,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("Preset") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                    modifier = Modifier
-                        .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                        .fillMaxWidth()
-                )
-                ExposedDropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
-                ) {
-                    presets.forEach { selection ->
-                        DropdownMenuItem(
-                            text = { Text(selection) },
-                            onClick = {
-                                onPresetChange(selection)
-                                expanded = false
-                            }
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                bandLevels.toSortedMap().forEach { (bandId, level) ->
-                    VerticalBandSlider(
-                        bandId = bandId,
-                        level = level,
-                        frequency = bandFrequencies.getOrNull(bandId),
-                        valueRange = bandLevelRange,
-                        onLevelChange = { newLevel ->
-                            onBandLevelChange(bandId, newLevel)
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun VerticalBandSlider(
-    bandId: Int,
-    level: Int,
-    frequency: Int?,
-    valueRange: ClosedFloatingPointRange<Float>,
-    onLevelChange: (Int) -> Unit
-) {
-    Column(
-        modifier = Modifier.width(64.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = "${level / 100} dB",
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.primary
-        )
-        
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Vertical Slider using rotation
-        Slider(
-            value = level.toFloat(),
-            onValueChange = { onLevelChange(it.toInt()) },
-            valueRange = valueRange,
-            modifier = Modifier
-                .height(200.dp)
-                .graphicsLayer {
-                    rotationZ = 270f
-                    transformOrigin = TransformOrigin(0f, 0f)
-                }
-                .layout { measurable, constraints ->
-                    val placeable = measurable.measure(
-                        Constraints(
-                            minWidth = constraints.minHeight,
-                            maxWidth = constraints.maxHeight,
-                            minHeight = constraints.minWidth,
-                            maxHeight = constraints.maxWidth
-                        )
-                    )
-                    layout(placeable.height, placeable.width) {
-                        placeable.place(-placeable.width, 0)
-                    }
-                },
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        val freqText = when {
-            frequency == null -> "B${bandId + 1}"
-            frequency >= 1000 -> "${frequency / 1000} kHz"
-            else -> "$frequency Hz"
-        }
-        Text(
-            text = freqText,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold
-        )
-    }
-}
-
 @Preview(showBackground = true)
 @Composable
-fun MainScreenPreview() {
+private fun MainScreenPreview() {
     EkhoTheme {
-        MainScreen()
+        MainContent(
+            uiState = MainUiState(
+                settings = AppSettings(
+                    preset = EqPreset.CUSTOM,
+                    bandLevels = listOf(200, 0, -300, 100, 0)
+                ),
+                service = ServiceUiState(isRunning = true),
+                hasSafeOutput = false
+            ),
+            micPermissionDenied = false,
+            onToggleService = {},
+            onOpenAppSettings = {},
+            onToggleBypass = {},
+            onPresetChange = {},
+            onBandLevelChange = { _, _ -> }
+        )
     }
 }

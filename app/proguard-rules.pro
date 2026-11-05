@@ -21,6 +21,12 @@
 #-renamesourcefileattribute SourceFile
 
 # Strip Timber debug/info logs in production
+-assumenosideeffects class timber.log.Timber$Forest {
+    public *** d(...);
+    public *** v(...);
+    public *** i(...);
+    public *** w(...);
+}
 -assumenosideeffects class timber.log.Timber {
     public static *** d(...);
     public static *** v(...);

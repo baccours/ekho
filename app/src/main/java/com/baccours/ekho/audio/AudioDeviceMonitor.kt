@@ -7,51 +7,52 @@ import android.media.AudioManager
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.distinctUntilChanged
 
-class AudioDeviceMonitor(context: Context) {
+/** Output device monitor. */
+interface OutputDevices {
+    /** Emits preferred safe output device ID, or null if none connected. */
+    val safeOutputDeviceIdFlow: Flow<Int?>
+
+    fun findOutputDevice(id: Int): AudioDeviceInfo?
+
+    /** Snapshot of [safeOutputDeviceIdFlow]. */
+    fun currentSafeOutputDeviceId(): Int?
+}
+
+class AudioDeviceMonitor(context: Context) : OutputDevices {
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
-    fun isLoopbackSafe(): Boolean {
-        val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-        return devices.any { isDeviceLoopbackSafe(it) }
-    }
+    /** Safe output device (wired/USB prioritized), if connected. */
+    fun findSafeOutputDevice(): AudioDeviceInfo? =
+        audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            .filter { OutputSafety.isSafeType(it.type) }
+            .minByOrNull { OutputSafety.devicePriority(it.type) ?: Int.MAX_VALUE }
 
-    val loopbackSafeStatusFlow: Flow<Boolean> = callbackFlow {
+    /** Built-in microphone, if available. */
+    fun findBuiltInMic(): AudioDeviceInfo? =
+        audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+            .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
+
+    override fun findOutputDevice(id: Int): AudioDeviceInfo? =
+        audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.id == id }
+
+    override fun currentSafeOutputDeviceId(): Int? = findSafeOutputDevice()?.id
+
+    override val safeOutputDeviceIdFlow: Flow<Int?> = callbackFlow {
         val callback = object : AudioDeviceCallback() {
             override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
-                trySend(isLoopbackSafe())
+                trySend(currentSafeOutputDeviceId())
             }
 
             override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
-                trySend(isLoopbackSafe())
+                trySend(currentSafeOutputDeviceId())
             }
         }
 
         audioManager.registerAudioDeviceCallback(callback, null)
-        awaitClose {
-            audioManager.unregisterAudioDeviceCallback(callback)
-        }
-    }.onStart { emit(isLoopbackSafe()) }
-
-    private fun isDeviceLoopbackSafe(device: AudioDeviceInfo): Boolean {
-        return when (device.type) {
-            AudioDeviceInfo.TYPE_WIRED_HEADSET,
-            AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
-            AudioDeviceInfo.TYPE_USB_HEADSET,
-            AudioDeviceInfo.TYPE_USB_DEVICE,
-            AudioDeviceInfo.TYPE_USB_ACCESSORY,
-            AudioDeviceInfo.TYPE_LINE_DIGITAL,
-            AudioDeviceInfo.TYPE_LINE_ANALOG,
-
-            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
-            AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
-            AudioDeviceInfo.TYPE_HEARING_AID,
-
-            AudioDeviceInfo.TYPE_BLE_HEADSET,
-            AudioDeviceInfo.TYPE_BLE_SPEAKER,
-            AudioDeviceInfo.TYPE_BLE_BROADCAST -> true
-            else -> false
-        }
-    }
+        // Emit initial state.
+        trySend(currentSafeOutputDeviceId())
+        awaitClose { audioManager.unregisterAudioDeviceCallback(callback) }
+    }.distinctUntilChanged()
 }

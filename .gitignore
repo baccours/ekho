@@ -1,12 +1,8 @@
+*.apk
 *.iml
 .gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
+.idea/
+.kotlin/
 .DS_Store
 /build
 /captures
@@ -14,4 +10,5 @@
 .cxx
 local.properties
 *.jks
-
+*.keystore
+keystore.properties
