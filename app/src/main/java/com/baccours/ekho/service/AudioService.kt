@@ -54,7 +54,12 @@ class AudioService : Service() {
         private const val ACTION_STOP = "STOP"
 
         fun start(context: Context) {
-            ContextCompat.startForegroundService(context, Intent(context, AudioService::class.java))
+            try {
+                ContextCompat.startForegroundService(context, Intent(context, AudioService::class.java))
+            } catch (e: IllegalStateException) {
+                // Includes ForegroundServiceStartNotAllowedException when the app just went to background.
+                Timber.e(e, "Unable to start AudioService")
+            }
         }
 
         fun stop(context: Context) {

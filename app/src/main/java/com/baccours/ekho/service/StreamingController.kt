@@ -92,8 +92,9 @@ class StreamingController(
                     )
                     when (result) {
                         StreamResult.Stopped -> {
+                            // Not canceled (cancellation throws), so retry rather than go idle.
+                            routeViolations = 0
                             report(StreamingStatus.Waiting)
-                            break
                         }
 
                         StreamResult.Failed -> {

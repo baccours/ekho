@@ -2,6 +2,17 @@ package com.baccours.ekho.audio
 
 import android.media.AudioDeviceInfo
 
+enum class StreamResult {
+    /** Stopped or canceled. */
+    Stopped,
+
+    /** Failed to open or broke down. */
+    Failed,
+
+    /** Cut due to an unsafe output route. */
+    RouteUnsafe
+}
+
 /** Audio streaming interface for decoupling hardware during tests. */
 interface AudioEngine {
     /**

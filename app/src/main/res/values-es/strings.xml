@@ -18,6 +18,7 @@
     <string name="toggle_on">Activado</string>
     <string name="toggle_off">Desactivado</string>
     <string name="toggle_action">Alternar</string>
+    <string name="feedback_toggle_label">Retransmitir sin protección contra el acoplamiento</string>
 
     <string name="equalizer_title">Ecualizador</string>
     <string name="collapse">Contraer</string>

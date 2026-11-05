@@ -25,17 +25,6 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration.Companion.milliseconds
 
-enum class StreamResult {
-    /** Stopped or canceled. */
-    Stopped,
-
-    /** Failed to open or broke down. */
-    Failed,
-
-    /** Cut due to an unsafe output route. */
-    RouteUnsafe
-}
-
 class AudioProcessor(
     private val preferredSampleRate: Int = DEFAULT_SAMPLE_RATE,
     /** Microphone to record from, or null for default. Pinning built-in mic avoids headset mic issues. */

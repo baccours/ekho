@@ -17,6 +17,7 @@
     <string name="toggle_on">On</string>
     <string name="toggle_off">Off</string>
     <string name="toggle_action">Toggle</string>
+    <string name="feedback_toggle_label">Stream without feedback protection</string>
 
     <string name="equalizer_title">Equalizer</string>
     <string name="collapse">Collapse</string>

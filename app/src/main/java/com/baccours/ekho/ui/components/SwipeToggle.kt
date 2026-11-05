@@ -32,8 +32,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -42,18 +44,16 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.baccours.ekho.R
-import com.baccours.ekho.ui.icons.ArrowRight
-import com.baccours.ekho.ui.icons.Check
-import com.baccours.ekho.ui.icons.Icons
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-/** Material 3 swipeable toggle switch component. */
+/** Material 3 swipeable toggle switch component. [label] is the accessible name (not drawn). */
 @Composable
 fun SwipeToggle(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    label: String,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     swipeThreshold: Float = 0.9f,
@@ -76,6 +76,7 @@ fun SwipeToggle(
             .height(trackHeight)
             .semantics(mergeDescendants = true) {
                 role = Role.Switch
+                contentDescription = label
                 stateDescription = stateText
                 if (enabled) {
                     onClick(label = actionLabel) {
@@ -186,7 +187,7 @@ fun SwipeToggle(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = if (checked) Icons.Check else Icons.ArrowRight,
+                painter = painterResource(if (checked) R.drawable.ic_check else R.drawable.ic_arrow_right),
                 contentDescription = null,
                 tint = if (enabled) thumbContentColor else MaterialTheme.colorScheme.surface
             )

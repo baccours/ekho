@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -58,9 +59,6 @@ import com.baccours.ekho.data.EqPreset
 import com.baccours.ekho.service.AudioService
 import com.baccours.ekho.service.ServiceUiState
 import com.baccours.ekho.ui.components.SwipeToggle
-import com.baccours.ekho.ui.icons.Icons
-import com.baccours.ekho.ui.icons.Play
-import com.baccours.ekho.ui.icons.Stop
 import com.baccours.ekho.ui.theme.EkhoTheme
 
 private fun Context.isGranted(permission: String) =
@@ -126,7 +124,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel(factory = MainViewModel.Fact
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainContent(
+private fun MainContent(
     uiState: MainUiState,
     micPermissionDenied: Boolean,
     onToggleService: () -> Unit,
@@ -208,7 +206,7 @@ fun MainContent(
 }
 
 @Composable
-fun FeedbackProtectionCard(
+private fun FeedbackProtectionCard(
     bypassFeedbackProtection: Boolean,
     onToggleBypass: (Boolean) -> Unit
 ) {
@@ -243,6 +241,7 @@ fun FeedbackProtectionCard(
             SwipeToggle(
                 checked = bypassFeedbackProtection,
                 onCheckedChange = onToggleBypass,
+                label = stringResource(R.string.feedback_toggle_label),
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -250,7 +249,7 @@ fun FeedbackProtectionCard(
 }
 
 @Composable
-fun ServiceControlButton(
+private fun ServiceControlButton(
     isServiceRunning: Boolean,
     isStreaming: Boolean,
     hasError: Boolean,
@@ -280,7 +279,7 @@ fun ServiceControlButton(
         colors = ButtonDefaults.buttonColors(containerColor = buttonColor)
     ) {
         Icon(
-            imageVector = if (isServiceRunning) Icons.Stop else Icons.Play,
+            painter = painterResource(if (isServiceRunning) R.drawable.ic_stop else R.drawable.ic_play),
             contentDescription = null
         )
         Spacer(modifier = Modifier.width(8.dp))
@@ -293,7 +292,7 @@ fun ServiceControlButton(
 
 @Preview(showBackground = true)
 @Composable
-fun MainScreenPreview() {
+private fun MainScreenPreview() {
     EkhoTheme {
         MainContent(
             uiState = MainUiState(

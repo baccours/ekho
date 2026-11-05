@@ -179,6 +179,18 @@ class StreamingControllerTest {
     }
 
     @Test
+    fun unexpectedStopIsRetried() = runTest {
+        val engine = FakeEngine(StreamResult.Stopped)
+        val statuses = launchController(engine, FakeDevices(7))
+        assertEquals(listOf(StreamingStatus.Waiting), statuses)
+
+        advance(RETRY_MS)
+
+        assertEquals(listOf(StreamingStatus.Waiting, StreamingStatus.Streaming), statuses)
+        assertEquals(2, engine.starts)
+    }
+
+    @Test
     fun persistentFailuresDoNotFlapTheStatus() = runTest {
         val engine = FakeEngine(StreamResult.Failed, StreamResult.Failed, StreamResult.Failed)
         val statuses = launchController(engine, FakeDevices(7))

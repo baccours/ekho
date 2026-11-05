@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -48,9 +49,6 @@ import androidx.compose.ui.unit.dp
 import com.baccours.ekho.R
 import com.baccours.ekho.audio.EqualizerBands
 import com.baccours.ekho.data.EqPreset
-import com.baccours.ekho.ui.icons.ArrowDown
-import com.baccours.ekho.ui.icons.ArrowUp
-import com.baccours.ekho.ui.icons.Icons
 import java.text.DecimalFormat
 import kotlin.math.roundToInt
 
@@ -86,8 +84,9 @@ fun EqualizerSection(
                 )
             }
             Icon(
-                imageVector = if (isEditing) Icons.ArrowUp
-                else Icons.ArrowDown,
+                painter = painterResource(
+                    if (isEditing) R.drawable.ic_arrow_up else R.drawable.ic_arrow_down
+                ),
                 contentDescription = stringResource(
                     if (isEditing) R.string.collapse else R.string.expand
                 )
